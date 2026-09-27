@@ -197,9 +197,27 @@ async function handleListEvents(chatId, scope) {
 /* ---- поиск ближайшего подходящего события по ключевым словам ---- */
 async function findEventByTitle(chatId, titleSearch) {
   if (!titleSearch) return null;
+
+  const words = titleSearch
+    .split(/\s+/)
+    .map((w) => w.trim())
+    .filter((w) => w.length >= 3);
+
+  const variants = new Set();
+  for (const w of words) {
+    variants.add(w);
+    if (w.length >= 5) variants.add(w.slice(0, -1));
+    if (w.length >= 6) variants.add(w.slice(0, -2));
+  }
+  if (variants.size === 0) variants.add(titleSearch);
+
+  const variantList = Array.from(variants);
+  const conditions = variantList.map((_, i) => `title ILIKE $${i + 2}`).join(" OR ");
+  const params = [chatId, ...variantList.map((v) => `%${v}%`)];
+
   const { rows } = await db.query(
-    `SELECT * FROM events WHERE chat_id=$1 AND event_at >= now() AND title ILIKE $2 ORDER BY event_at ASC LIMIT 5`,
-    [chatId, `%${titleSearch}%`]
+    `SELECT * FROM events WHERE chat_id=$1 AND event_at >= now() AND (${conditions}) ORDER BY event_at ASC LIMIT 5`,
+    params
   );
   return rows;
 }
