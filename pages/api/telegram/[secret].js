@@ -7,10 +7,19 @@ const {
   offsetMinutesToPhrase,
   formatDateHuman,
   utcIsoToLocalParts,
+  nextWeekdayOccurrenceUtcIso,
 } = require("../../../lib/time");
 const db = require("../../../lib/db");
 
 const TZ_OFFSET = process.env.DEFAULT_TZ_OFFSET || "+03:00";
+
+const WEEKDAY_NUM = {
+  sunday: 0, monday: 1, tuesday: 2, wednesday: 3, thursday: 4, friday: 5, saturday: 6,
+};
+const WEEKDAY_RU = {
+  0: "воскресенье", 1: "понедельник", 2: "вторник", 3: "среду",
+  4: "четверг", 5: "пятницу", 6: "субботу",
+};
 
 export const config = {
   api: { bodyParser: true },
@@ -64,10 +73,12 @@ async function handleUpdate(update) {
       "Привет! 👋 Я запомню твои дела и напомню о них.\n\n" +
         "Пиши или говори голосом, например:\n" +
         "«Встреча с юристом в четверг в 15:00, напомни за час»\n" +
+        "«Каждый понедельник в 16:00 собрание с партнёрами»\n" +
         "«Что у меня сегодня»\n" +
         "«Удали встречу с юристом»\n" +
         "«Перенеси встречу с юристом на пятницу в 18:00»\n" +
-        "«Не напоминай про встречу с юристом»\n\n" +
+        "«Не напоминай про встречу с юристом»\n" +
+        "«Останови повторяющееся собрание с партнёрами»\n\n" +
         "Про погоду тоже можно спросить: «погода в Перми послезавтра»"
     );
     return;
@@ -105,6 +116,16 @@ async function handleUpdate(update) {
 
   if (parsed.intent === "cancel_reminder") {
     await handleCancelReminder(chatId, parsed.title);
+    return;
+  }
+
+  if (parsed.intent === "create_recurring_event" && parsed.title && parsed.weekday) {
+    await handleCreateRecurringEvent(chatId, parsed);
+    return;
+  }
+
+  if (parsed.intent === "delete_recurring_event") {
+    await handleDeleteRecurringEvent(chatId, parsed.title);
     return;
   }
 
@@ -198,6 +219,8 @@ async function handleListEvents(chatId, scope) {
 async function findEventByTitle(chatId, titleSearch) {
   if (!titleSearch) return null;
 
+  // разбиваем на слова и для каждого пробуем полную форму и укороченную основу —
+  // это снимает часть проблем с падежами ("молоко" / "молока" / "молоку")
   const words = titleSearch
     .split(/\s+/)
     .map((w) => w.trim())
@@ -268,6 +291,7 @@ async function handleRescheduleEvent(chatId, parsed) {
     return;
   }
 
+  // сохраняем прежний интервал напоминания относительно события
   const oldOffsetMin = target.remind_at
     ? Math.round((new Date(target.event_at).getTime() - new Date(target.remind_at).getTime()) / 60000)
     : 0;
@@ -305,5 +329,72 @@ async function handleCancelReminder(chatId, titleSearch) {
       local.dateStr,
       local.timeStr
     )}${note}\nСамо событие осталось в списке.`
+  );
+}
+
+/* ---- создание еженедельно повторяющегося дела ---- */
+async function handleCreateRecurringEvent(chatId, parsed) {
+  const weekdayNum = WEEKDAY_NUM[parsed.weekday];
+  if (weekdayNum === undefined) {
+    await sendMessage(chatId, "Не понял, на какой день недели. Уточни, пожалуйста.");
+    return;
+  }
+
+  const time = parsed.event_time || "09:00";
+  const offsetMin = Number.isFinite(parsed.remind_offset_minutes) ? parsed.remind_offset_minutes : 0;
+  const emoji = parsed.emoji || "📌";
+
+  const insertRes = await db.query(
+    `INSERT INTO recurring_events (chat_id, title, emoji, weekday, time, remind_offset_minutes)
+     VALUES ($1,$2,$3,$4,$5,$6) RETURNING id`,
+    [chatId, parsed.title, emoji, weekdayNum, time, offsetMin]
+  );
+  const recurringId = insertRes.rows[0].id;
+
+  const nextEventAtIso = nextWeekdayOccurrenceUtcIso(weekdayNum, time, TZ_OFFSET);
+  const remindAtIso = new Date(new Date(nextEventAtIso).getTime() - offsetMin * 60000).toISOString();
+
+  await db.query(
+    `INSERT INTO events (chat_id, title, emoji, event_at, remind_at, recurring_id) VALUES ($1,$2,$3,$4,$5,$6)`,
+    [chatId, parsed.title, emoji, nextEventAtIso, remindAtIso, recurringId]
+  );
+
+  const local = utcIsoToLocalParts(nextEventAtIso, TZ_OFFSET);
+  const timeNote = parsed.event_time ? "" : " (время не назвал — поставил на 09:00, поправь, если не то)";
+  await sendMessage(
+    chatId,
+    `🔁 Буду повторять каждую неделю в ${WEEKDAY_RU[weekdayNum]} в ${time}${timeNote}: ${emoji} ${parsed.title}\n` +
+      `📅 Ближайшее: ${formatDateHuman(local.dateStr, local.timeStr)}\n` +
+      `⏰ Напомню ${offsetMinutesToPhrase(offsetMin)}`
+  );
+}
+
+/* ---- остановка повторяющегося дела целиком ---- */
+async function handleDeleteRecurringEvent(chatId, titleSearch) {
+  if (!titleSearch) {
+    await sendMessage(chatId, "Какое повторяющееся дело остановить? Уточни название.");
+    return;
+  }
+
+  const { rows } = await db.query(
+    `SELECT * FROM recurring_events WHERE chat_id=$1 AND title ILIKE $2 ORDER BY id ASC LIMIT 5`,
+    [chatId, `%${titleSearch}%`]
+  );
+
+  if (rows.length === 0) {
+    await sendMessage(chatId, `Не нашёл повторяющееся дело, похожее на «${titleSearch}».`);
+    return;
+  }
+
+  const target = rows[0];
+  await db.query(`DELETE FROM events WHERE recurring_id=$1 AND event_at >= now()`, [target.id]);
+  await db.query(`DELETE FROM recurring_events WHERE id=$1`, [target.id]);
+
+  const note = rows.length > 1 ? "\n\n(похожих было несколько — остановил первое найденное)" : "";
+  await sendMessage(
+    chatId,
+    `⏹ Остановил повторение: ${target.emoji || "📌"} ${target.title} (было каждую неделю в ${
+      WEEKDAY_RU[target.weekday]
+    } в ${target.time})${note}`
   );
 }
