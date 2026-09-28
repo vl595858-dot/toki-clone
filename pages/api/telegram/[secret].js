@@ -204,7 +204,7 @@ async function handleWeather(chatId, parsed, ctx, patch) {
     return;
   }
 
-  const reply = await getWeatherText(region, offsetDays);
+  const reply = await getWeatherText(region, offsetDays, parsed.weather_part_of_day);
   await sendMessage(chatId, reply);
   if (reply.startsWith("📍")) {
     patch.last_region = region;
