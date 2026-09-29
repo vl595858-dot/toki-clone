@@ -7,7 +7,7 @@ const {
   offsetMinutesToPhrase,
   formatDateHuman,
   utcIsoToLocalParts,
-  nextWeekdayOccurrenceUtcIso,
+  nextRecurringOccurrenceUtcIso,
 } = require("../../../lib/time");
 const db = require("../../../lib/db");
 const { loadContext, saveContext } = require("../../../lib/context");
@@ -21,6 +21,10 @@ const WEEKDAY_RU = {
   0: "воскресенье", 1: "понедельник", 2: "вторник", 3: "среду",
   4: "четверг", 5: "пятницу", 6: "субботу",
 };
+const MONTHS_GEN = [
+  "января","февраля","марта","апреля","мая","июня",
+  "июля","августа","сентября","октября","ноября","декабря",
+];
 
 export const config = {
   api: { bodyParser: true },
@@ -75,6 +79,9 @@ async function handleUpdate(update) {
         "Пиши или говори голосом, например:\n" +
         "«Встреча с юристом в четверг в 15:00, напомни за час»\n" +
         "«Каждый понедельник в 16:00 собрание с партнёрами»\n" +
+        "«Каждый день в 8:00 зарядка»\n" +
+        "«15-го числа каждого месяца оплатить аренду»\n" +
+        "«У мамы день рождения 5 мая, напомни за неделю»\n" +
         "«Что у меня сегодня»\n" +
         "«Удали встречу с юристом»\n" +
         "«Перенеси встречу с юристом на пятницу в 18:00»\n" +
@@ -138,7 +145,7 @@ async function dispatch(chatId, parsed, ctx, patch) {
     await handleSetReminder(chatId, parsed, ctx, patch);
     return;
   }
-  if (parsed.intent === "create_recurring_event" && parsed.title && parsed.weekday) {
+  if (parsed.intent === "create_recurring_event" && parsed.title) {
     await handleCreateRecurringEvent(chatId, parsed, patch);
     return;
   }
@@ -482,12 +489,41 @@ async function handleSetReminder(chatId, parsed, ctx, patch) {
   );
 }
 
-/* ---- создание еженедельно повторяющегося дела ---- */
+/* ---- создание регулярно повторяющегося дела (день/неделя/месяц/год) ---- */
 async function handleCreateRecurringEvent(chatId, parsed, patch) {
-  const weekdayNum = WEEKDAY_NUM[parsed.weekday];
-  if (weekdayNum === undefined) {
-    await sendMessage(chatId, "Не понял, на какой день недели. Уточни, пожалуйста.");
-    return;
+  const frequency = ["daily", "weekly", "monthly", "yearly"].includes(parsed.recurring_frequency)
+    ? parsed.recurring_frequency
+    : "weekly"; // на случай, если модель не прислала тип — самый безопасный дефолт
+
+  let weekdayNum = null;
+  let monthDay = null;
+  let month = null;
+  let scheduleLabel = "";
+
+  if (frequency === "weekly") {
+    weekdayNum = WEEKDAY_NUM[parsed.weekday];
+    if (weekdayNum === undefined) {
+      await sendMessage(chatId, "Не понял, на какой день недели. Уточни, пожалуйста.");
+      return;
+    }
+    scheduleLabel = `каждую неделю в ${WEEKDAY_RU[weekdayNum]}`;
+  } else if (frequency === "monthly") {
+    monthDay = Number(parsed.recurring_month_day);
+    if (!Number.isInteger(monthDay) || monthDay < 1 || monthDay > 31) {
+      await sendMessage(chatId, "Какого числа каждый месяц? Уточни число от 1 до 31.");
+      return;
+    }
+    scheduleLabel = `каждый месяц ${monthDay}-го числа`;
+  } else if (frequency === "yearly") {
+    month = Number(parsed.recurring_month);
+    monthDay = Number(parsed.recurring_month_day);
+    if (!Number.isInteger(month) || month < 1 || month > 12 || !Number.isInteger(monthDay) || monthDay < 1 || monthDay > 31) {
+      await sendMessage(chatId, "Уточни дату — число и месяц, например «5 мая».");
+      return;
+    }
+    scheduleLabel = `каждый год ${monthDay} ${MONTHS_GEN[month - 1]}`;
+  } else {
+    scheduleLabel = "каждый день";
   }
 
   const time = parsed.event_time || "09:00";
@@ -495,13 +531,14 @@ async function handleCreateRecurringEvent(chatId, parsed, patch) {
   const emoji = parsed.emoji || "📌";
 
   const insertRes = await db.query(
-    `INSERT INTO recurring_events (chat_id, title, emoji, weekday, time, remind_offset_minutes)
-     VALUES ($1,$2,$3,$4,$5,$6) RETURNING id`,
-    [chatId, parsed.title, emoji, weekdayNum, time, offsetMin]
+    `INSERT INTO recurring_events (chat_id, title, emoji, frequency, weekday, month_day, month, time, remind_offset_minutes)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING id`,
+    [chatId, parsed.title, emoji, frequency, weekdayNum, monthDay, month, time, offsetMin]
   );
   const recurringId = insertRes.rows[0].id;
 
-  const nextEventAtIso = nextWeekdayOccurrenceUtcIso(weekdayNum, time, TZ_OFFSET);
+  const tpl = { frequency, weekday: weekdayNum, month_day: monthDay, month, time };
+  const nextEventAtIso = nextRecurringOccurrenceUtcIso(tpl, TZ_OFFSET);
   const remindAtIso = new Date(new Date(nextEventAtIso).getTime() - offsetMin * 60000).toISOString();
 
   const ev = await db.query(
@@ -514,7 +551,7 @@ async function handleCreateRecurringEvent(chatId, parsed, patch) {
   const timeNote = parsed.event_time ? "" : " (время не назвал — поставил на 09:00, поправь, если не то)";
   await sendMessage(
     chatId,
-    `🔁 Буду повторять каждую неделю в ${WEEKDAY_RU[weekdayNum]} в ${time}${timeNote}: ${emoji} ${parsed.title}\n` +
+    `🔁 Буду повторять ${scheduleLabel} в ${time}${timeNote}: ${emoji} ${parsed.title}\n` +
       `📅 Ближайшее: ${formatDateHuman(local.dateStr, local.timeStr)}\n` +
       `⏰ Напомню ${offsetMinutesToPhrase(offsetMin)}`
   );
@@ -544,10 +581,16 @@ async function handleDeleteRecurringEvent(chatId, titleSearch) {
   const note = rows.length > 1 ? "\n\n(похожих было несколько — остановил первое найденное)" : "";
   await sendMessage(
     chatId,
-    `⏹ Остановил повторение: ${target.emoji || "📌"} ${target.title} (было каждую неделю в ${
-      WEEKDAY_RU[target.weekday]
-    } в ${target.time})${note}`
+    `⏹ Остановил повторение: ${target.emoji || "📌"} ${target.title} (было ${scheduleLabelFor(target)} в ${target.time})${note}`
   );
+}
+
+/* ---- текстовое описание расписания шаблона для любого из четырёх типов ---- */
+function scheduleLabelFor(tpl) {
+  if (tpl.frequency === "daily") return "каждый день";
+  if (tpl.frequency === "monthly") return `каждый месяц ${tpl.month_day}-го числа`;
+  if (tpl.frequency === "yearly") return `каждый год ${tpl.month_day} ${MONTHS_GEN[tpl.month - 1]}`;
+  return `каждую неделю в ${WEEKDAY_RU[tpl.weekday]}`;
 }
 
 /* ---- защита от слов из памяти в названии нового дела ---- */
