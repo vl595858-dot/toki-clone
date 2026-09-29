@@ -1,5 +1,5 @@
 const { sendMessage } = require("../../../lib/telegram");
-const { formatDateHuman, utcIsoToLocalParts, nextWeekdayOccurrenceUtcIso } = require("../../../lib/time");
+const { formatDateHuman, utcIsoToLocalParts, nextRecurringOccurrenceUtcIso } = require("../../../lib/time");
 const db = require("../../../lib/db");
 
 const TZ_OFFSET = process.env.DEFAULT_TZ_OFFSET || "+03:00";
@@ -23,7 +23,7 @@ export default async function handler(req, res) {
       );
       if (future.length > 0) continue;
 
-      const nextEventAtIso = nextWeekdayOccurrenceUtcIso(tpl.weekday, tpl.time, TZ_OFFSET);
+      const nextEventAtIso = nextRecurringOccurrenceUtcIso(tpl, TZ_OFFSET);
       const remindAtIso = new Date(
         new Date(nextEventAtIso).getTime() - tpl.remind_offset_minutes * 60000
       ).toISOString();
