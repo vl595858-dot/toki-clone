@@ -1,8 +1,7 @@
 const { sendMessage } = require("../../../lib/telegram");
 const { formatDateHuman, utcIsoToLocalParts, nextRecurringOccurrenceUtcIso } = require("../../../lib/time");
 const db = require("../../../lib/db");
-
-const TZ_OFFSET = process.env.DEFAULT_TZ_OFFSET || "+03:00";
+const { getTzOffset } = require("../../../lib/settings");
 
 export default async function handler(req, res) {
   const auth = req.headers.authorization;
@@ -10,6 +9,13 @@ export default async function handler(req, res) {
     res.status(401).json({ error: "unauthorized" });
     return;
   }
+
+  // часовой пояс у каждого чата свой — читаем по требованию и кешируем на время одного запуска
+  const tzCache = new Map();
+  const tzFor = async (chatId) => {
+    if (!tzCache.has(chatId)) tzCache.set(chatId, await getTzOffset(chatId));
+    return tzCache.get(chatId);
+  };
 
   try {
     let regenerated = 0;
@@ -23,7 +29,8 @@ export default async function handler(req, res) {
       );
       if (future.length > 0) continue;
 
-      const nextEventAtIso = nextRecurringOccurrenceUtcIso(tpl, TZ_OFFSET);
+      const tz = await tzFor(tpl.chat_id);
+      const nextEventAtIso = nextRecurringOccurrenceUtcIso(tpl, tz);
       const remindAtIso = new Date(
         new Date(nextEventAtIso).getTime() - tpl.remind_offset_minutes * 60000
       ).toISOString();
@@ -40,7 +47,8 @@ export default async function handler(req, res) {
     );
 
     for (const ev of rows) {
-      const { dateStr, timeStr } = utcIsoToLocalParts(ev.event_at, TZ_OFFSET);
+      const tz = await tzFor(ev.chat_id);
+      const { dateStr, timeStr } = utcIsoToLocalParts(ev.event_at, tz);
       const text =
         `⏰ Напоминание: ${ev.emoji || "📌"} ${ev.title}\n` +
         `🗓 Событие: ${formatDateHuman(dateStr, timeStr)}`;
