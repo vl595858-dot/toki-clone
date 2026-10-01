@@ -1,4 +1,4 @@
-const { sendMessage } = require("../../../lib/telegram");
+const { sendMessage, answerCallbackQuery } = require("../../../lib/telegram");
 const { transcribeVoice, parseMessage } = require("../../../lib/ai");
 const { getWeatherText } = require("../../../lib/weather");
 const {
@@ -11,8 +11,7 @@ const {
 } = require("../../../lib/time");
 const db = require("../../../lib/db");
 const { loadContext, saveContext } = require("../../../lib/context");
-
-const TZ_OFFSET = process.env.DEFAULT_TZ_OFFSET || "+03:00";
+const { getTzOffset, setTzOffset } = require("../../../lib/settings");
 
 const WEEKDAY_NUM = {
   sunday: 0, monday: 1, tuesday: 2, wednesday: 3, thursday: 4, friday: 5, saturday: 6,
@@ -24,6 +23,13 @@ const WEEKDAY_RU = {
 const MONTHS_GEN = [
   "января","февраля","марта","апреля","мая","июня",
   "июля","августа","сентября","октября","ноября","декабря",
+];
+
+// часовые пояса, доступные через команду /timezone (ручная подстраховка —
+// основной способ настройки часового пояса теперь автоматический, через приложение-календарь)
+const TZ_CHOICES = [
+  { label: "Москва (+03:00)", offset: "+03:00" },
+  { label: "Пермь (+05:00)", offset: "+05:00" },
 ];
 
 export const config = {
@@ -42,11 +48,29 @@ export default async function handler(req, res) {
   }
 
   try {
-    await handleUpdate(req.body);
+    if (req.body.callback_query) {
+      await handleCallbackQuery(req.body.callback_query);
+    } else {
+      await handleUpdate(req.body);
+    }
   } catch (e) {
     console.error("handleUpdate error", e);
   }
   res.status(200).json({ ok: true });
+}
+
+/* ---- нажатие кнопки под сообщением (пока только выбор часового пояса) ---- */
+async function handleCallbackQuery(cq) {
+  const chatId = cq.message?.chat?.id;
+  if (!chatId || !cq.data) return;
+
+  if (cq.data.startsWith("tz:")) {
+    const offset = cq.data.slice(3);
+    await setTzOffset(chatId, offset);
+    const label = TZ_CHOICES.find((c) => c.offset === offset)?.label || offset;
+    await answerCallbackQuery(cq.id, "Часовой пояс сохранён");
+    await sendMessage(chatId, `✅ Часовой пояс установлен: ${label}`);
+  }
 }
 
 async function handleUpdate(update) {
@@ -88,10 +112,23 @@ async function handleUpdate(update) {
         "«Не напоминай про встречу с юристом»\n" +
         "«Останови повторяющееся собрание с партнёрами»\n\n" +
         "Я помню последний час разговора: после записи дела можно написать «перенеси его на пятницу» или «напомни за час».\n\n" +
-        "Про погоду тоже можно спросить: «погода в Перми послезавтра», а потом «а завтра?»"
+        "Про погоду тоже можно спросить: «погода в Перми послезавтра», а потом «а завтра?»\n\n" +
+        "Часовой пояс можно посмотреть и поменять командой /timezone."
     );
     return;
   }
+
+  if (text.trim() === "/timezone") {
+    await sendMessage(chatId, "Выбери часовой пояс:", {
+      replyMarkup: {
+        inline_keyboard: [TZ_CHOICES.map((c) => ({ text: c.label, callback_data: `tz:${c.offset}` }))],
+      },
+    });
+    return;
+  }
+
+  // часовой пояс этого конкретного чата — свой на каждого человека
+  const tz = await getTzOffset(chatId);
 
   // память диалога: что бот ждёт от пользователя и о чём шла речь в последний час
   const ctx = await loadContext(chatId);
@@ -100,8 +137,8 @@ async function handleUpdate(update) {
   let parsed;
   let contextText = "";
   try {
-    contextText = await buildContextText(chatId, ctx);
-    parsed = await parseMessage(text, TZ_OFFSET, contextText);
+    contextText = await buildContextText(chatId, ctx, tz);
+    parsed = await parseMessage(text, tz, contextText);
   } catch (e) {
     console.error("parse error", e);
     await sendMessage(chatId, "Не разобрал сообщение. Попробуй сформулировать иначе.");
@@ -114,39 +151,39 @@ async function handleUpdate(update) {
   }
 
   try {
-    await dispatch(chatId, parsed, ctx, patch);
+    await dispatch(chatId, parsed, ctx, patch, tz);
   } finally {
     await saveContext(chatId, { ...ctx, ...patch });
   }
 }
 
-async function dispatch(chatId, parsed, ctx, patch) {
+async function dispatch(chatId, parsed, ctx, patch, tz) {
   if (parsed.intent === "weather") {
     await handleWeather(chatId, parsed, ctx, patch);
     return;
   }
   if (parsed.intent === "list_events") {
-    await handleListEvents(chatId, parsed.list_scope);
+    await handleListEvents(chatId, parsed.list_scope, tz);
     return;
   }
   if (parsed.intent === "delete_event") {
-    await handleDeleteEvent(chatId, parsed, ctx, patch);
+    await handleDeleteEvent(chatId, parsed, ctx, patch, tz);
     return;
   }
   if (parsed.intent === "reschedule_event") {
-    await handleRescheduleEvent(chatId, parsed, ctx, patch);
+    await handleRescheduleEvent(chatId, parsed, ctx, patch, tz);
     return;
   }
   if (parsed.intent === "cancel_reminder") {
-    await handleCancelReminder(chatId, parsed, ctx, patch);
+    await handleCancelReminder(chatId, parsed, ctx, patch, tz);
     return;
   }
   if (parsed.intent === "set_reminder") {
-    await handleSetReminder(chatId, parsed, ctx, patch);
+    await handleSetReminder(chatId, parsed, ctx, patch, tz);
     return;
   }
   if (parsed.intent === "create_recurring_event" && parsed.title) {
-    await handleCreateRecurringEvent(chatId, parsed, patch);
+    await handleCreateRecurringEvent(chatId, parsed, patch, tz);
     return;
   }
   if (parsed.intent === "delete_recurring_event") {
@@ -154,7 +191,7 @@ async function dispatch(chatId, parsed, ctx, patch) {
     return;
   }
   if (parsed.intent === "create_event" && parsed.title) {
-    await handleCreateEvent(chatId, parsed, patch);
+    await handleCreateEvent(chatId, parsed, patch, tz);
     return;
   }
 
@@ -165,7 +202,7 @@ async function dispatch(chatId, parsed, ctx, patch) {
 }
 
 /* ---- справка для модели о текущем состоянии разговора ---- */
-async function buildContextText(chatId, ctx) {
+async function buildContextText(chatId, ctx, tz) {
   try {
     const lines = [];
     const pending = ctx.pending;
@@ -188,7 +225,7 @@ async function buildContextText(chatId, ctx) {
         chatId,
       ]);
       if (rows.length) {
-        const local = utcIsoToLocalParts(rows[0].event_at, TZ_OFFSET);
+        const local = utcIsoToLocalParts(rows[0].event_at, tz);
         lines.push(
           `Последнее дело, о котором шла речь: «${rows[0].title}» — ${formatDateHuman(local.dateStr, local.timeStr)}.`
         );
@@ -226,7 +263,7 @@ async function handleWeather(chatId, parsed, ctx, patch) {
 }
 
 /* ---- создание события ---- */
-async function handleCreateEvent(chatId, parsed, patch) {
+async function handleCreateEvent(chatId, parsed, patch, tz) {
   let eventAtIso;
   let eventDateForText;
   let eventTimeForText;
@@ -234,13 +271,13 @@ async function handleCreateEvent(chatId, parsed, patch) {
   if (Number.isFinite(parsed.event_relative_minutes)) {
     const eventAt = new Date(Date.now() + parsed.event_relative_minutes * 60000);
     eventAtIso = eventAt.toISOString();
-    const local = utcIsoToLocalParts(eventAtIso, TZ_OFFSET);
+    const local = utcIsoToLocalParts(eventAtIso, tz);
     eventDateForText = local.dateStr;
     eventTimeForText = local.timeStr;
   } else {
-    eventDateForText = parsed.event_date || todayInOffset(TZ_OFFSET);
+    eventDateForText = parsed.event_date || todayInOffset(tz);
     eventTimeForText = parsed.event_time || "09:00";
-    eventAtIso = toUtcIso(eventDateForText, eventTimeForText, TZ_OFFSET);
+    eventAtIso = toUtcIso(eventDateForText, eventTimeForText, tz);
   }
 
   const offsetMin = Number.isFinite(parsed.remind_offset_minutes) ? parsed.remind_offset_minutes : 0;
@@ -266,19 +303,19 @@ async function handleCreateEvent(chatId, parsed, patch) {
 }
 
 /* ---- список предстоящих дел ---- */
-async function handleListEvents(chatId, scope) {
+async function handleListEvents(chatId, scope, tz) {
   let from = new Date();
   let to = null;
 
   if (scope === "today") {
-    const dateStr = todayInOffset(TZ_OFFSET);
-    from = new Date(toUtcIso(dateStr, "00:00", TZ_OFFSET));
-    to = new Date(toUtcIso(dateStr, "23:59", TZ_OFFSET));
+    const dateStr = todayInOffset(tz);
+    from = new Date(toUtcIso(dateStr, "00:00", tz));
+    to = new Date(toUtcIso(dateStr, "23:59", tz));
   } else if (scope === "tomorrow") {
     const tomorrow = new Date(Date.now() + 86400000);
-    const local = utcIsoToLocalParts(tomorrow.toISOString(), TZ_OFFSET);
-    from = new Date(toUtcIso(local.dateStr, "00:00", TZ_OFFSET));
-    to = new Date(toUtcIso(local.dateStr, "23:59", TZ_OFFSET));
+    const local = utcIsoToLocalParts(tomorrow.toISOString(), tz);
+    from = new Date(toUtcIso(local.dateStr, "00:00", tz));
+    to = new Date(toUtcIso(local.dateStr, "23:59", tz));
   }
 
   const params = to ? [chatId, from.toISOString(), to.toISOString()] : [chatId, from.toISOString()];
@@ -294,7 +331,7 @@ async function handleListEvents(chatId, scope) {
   }
 
   const lines = rows.map((ev) => {
-    const local = utcIsoToLocalParts(ev.event_at, TZ_OFFSET);
+    const local = utcIsoToLocalParts(ev.event_at, tz);
     return `${ev.emoji || "📌"} ${ev.title} — ${formatDateHuman(local.dateStr, local.timeStr)}`;
   });
 
@@ -356,7 +393,7 @@ async function replyNotFound(chatId, parsed) {
 }
 
 /* ---- удаление события ---- */
-async function handleDeleteEvent(chatId, parsed, ctx, patch) {
+async function handleDeleteEvent(chatId, parsed, ctx, patch, tz) {
   const { target, matches } = await resolveTarget(chatId, parsed, ctx);
   if (!target) {
     await replyNotFound(chatId, parsed);
@@ -364,7 +401,7 @@ async function handleDeleteEvent(chatId, parsed, ctx, patch) {
   }
   await db.query(`DELETE FROM events WHERE id=$1`, [target.id]);
   if (ctx.last_event_id === target.id) patch.last_event_id = null;
-  const local = utcIsoToLocalParts(target.event_at, TZ_OFFSET);
+  const local = utcIsoToLocalParts(target.event_at, tz);
   const note = matches.length > 1 ? "\n\n(похожих было несколько — удалил ближайшее по времени)" : "";
   await sendMessage(
     chatId,
@@ -373,7 +410,7 @@ async function handleDeleteEvent(chatId, parsed, ctx, patch) {
 }
 
 /* ---- перенос события ---- */
-async function handleRescheduleEvent(chatId, parsed, ctx, patch) {
+async function handleRescheduleEvent(chatId, parsed, ctx, patch, tz) {
   const { target, matches } = await resolveTarget(chatId, parsed, ctx);
   if (!target) {
     await replyNotFound(chatId, parsed);
@@ -388,14 +425,14 @@ async function handleRescheduleEvent(chatId, parsed, ctx, patch) {
   if (Number.isFinite(parsed.event_relative_minutes)) {
     const eventAt = new Date(Date.now() + parsed.event_relative_minutes * 60000);
     newEventAtIso = eventAt.toISOString();
-    const local = utcIsoToLocalParts(newEventAtIso, TZ_OFFSET);
+    const local = utcIsoToLocalParts(newEventAtIso, tz);
     newDateForText = local.dateStr;
     newTimeForText = local.timeStr;
   } else if (parsed.event_date || parsed.event_time) {
-    const oldLocal = utcIsoToLocalParts(target.event_at, TZ_OFFSET);
+    const oldLocal = utcIsoToLocalParts(target.event_at, tz);
     newDateForText = parsed.event_date || oldLocal.dateStr;
     newTimeForText = parsed.event_time || oldLocal.timeStr;
-    newEventAtIso = toUtcIso(newDateForText, newTimeForText, TZ_OFFSET);
+    newEventAtIso = toUtcIso(newDateForText, newTimeForText, tz);
   } else {
     await sendMessage(chatId, `На какое время перенести «${target.title}»? Напиши дату или время.`);
     patch.pending = { type: "reschedule_time" };
@@ -424,7 +461,7 @@ async function handleRescheduleEvent(chatId, parsed, ctx, patch) {
 }
 
 /* ---- отмена только напоминания, событие остаётся ---- */
-async function handleCancelReminder(chatId, parsed, ctx, patch) {
+async function handleCancelReminder(chatId, parsed, ctx, patch, tz) {
   const { target, matches } = await resolveTarget(chatId, parsed, ctx);
   if (!target) {
     await replyNotFound(chatId, parsed);
@@ -432,7 +469,7 @@ async function handleCancelReminder(chatId, parsed, ctx, patch) {
   }
   patch.last_event_id = target.id;
   await db.query(`UPDATE events SET remind_at=NULL WHERE id=$1`, [target.id]);
-  const local = utcIsoToLocalParts(target.event_at, TZ_OFFSET);
+  const local = utcIsoToLocalParts(target.event_at, tz);
   const note = matches.length > 1 ? "\n\n(похожих было несколько — снял напоминание с ближайшего)" : "";
   await sendMessage(
     chatId,
@@ -444,7 +481,7 @@ async function handleCancelReminder(chatId, parsed, ctx, patch) {
 }
 
 /* ---- поставить или изменить напоминание у существующего дела ---- */
-async function handleSetReminder(chatId, parsed, ctx, patch) {
+async function handleSetReminder(chatId, parsed, ctx, patch, tz) {
   const { target, matches } = await resolveTarget(chatId, parsed, ctx);
   if (!target) {
     await replyNotFound(chatId, parsed);
@@ -479,7 +516,7 @@ async function handleSetReminder(chatId, parsed, ctx, patch) {
     target.id,
   ]);
 
-  const local = utcIsoToLocalParts(target.event_at, TZ_OFFSET);
+  const local = utcIsoToLocalParts(target.event_at, tz);
   const actualOffset = Math.round((eventAtMs - remindMs) / 60000);
   const multi = matches.length > 1 ? "\n\n(похожих было несколько — выбрал ближайшее по времени)" : "";
   await sendMessage(
@@ -490,7 +527,7 @@ async function handleSetReminder(chatId, parsed, ctx, patch) {
 }
 
 /* ---- создание регулярно повторяющегося дела (день/неделя/месяц/год) ---- */
-async function handleCreateRecurringEvent(chatId, parsed, patch) {
+async function handleCreateRecurringEvent(chatId, parsed, patch, tz) {
   const frequency = ["daily", "weekly", "monthly", "yearly"].includes(parsed.recurring_frequency)
     ? parsed.recurring_frequency
     : "weekly"; // на случай, если модель не прислала тип — самый безопасный дефолт
@@ -538,7 +575,7 @@ async function handleCreateRecurringEvent(chatId, parsed, patch) {
   const recurringId = insertRes.rows[0].id;
 
   const tpl = { frequency, weekday: weekdayNum, month_day: monthDay, month, time };
-  const nextEventAtIso = nextRecurringOccurrenceUtcIso(tpl, TZ_OFFSET);
+  const nextEventAtIso = nextRecurringOccurrenceUtcIso(tpl, tz);
   const remindAtIso = new Date(new Date(nextEventAtIso).getTime() - offsetMin * 60000).toISOString();
 
   const ev = await db.query(
@@ -547,7 +584,7 @@ async function handleCreateRecurringEvent(chatId, parsed, patch) {
   );
   patch.last_event_id = ev.rows[0].id;
 
-  const local = utcIsoToLocalParts(nextEventAtIso, TZ_OFFSET);
+  const local = utcIsoToLocalParts(nextEventAtIso, tz);
   const timeNote = parsed.event_time ? "" : " (время не назвал — поставил на 09:00, поправь, если не то)";
   await sendMessage(
     chatId,
