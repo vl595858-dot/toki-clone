@@ -1,7 +1,9 @@
 const { sendMessage } = require("../../../lib/telegram");
-const { formatDateHuman, utcIsoToLocalParts, nextRecurringOccurrenceUtcIso } = require("../../../lib/time");
+const { formatDateHuman, utcIsoToLocalParts, nextNOccurrencesUtcIso } = require("../../../lib/time");
 const db = require("../../../lib/db");
 const { getTzOffset } = require("../../../lib/settings");
+
+const RECURRING_BUFFER_SIZE = 8;
 
 export default async function handler(req, res) {
   const auth = req.headers.authorization;
@@ -10,7 +12,6 @@ export default async function handler(req, res) {
     return;
   }
 
-  // часовой пояс у каждого чата свой — читаем по требованию и кешируем на время одного запуска
   const tzCache = new Map();
   const tzFor = async (chatId) => {
     if (!tzCache.has(chatId)) tzCache.set(chatId, await getTzOffset(chatId));
@@ -20,26 +21,29 @@ export default async function handler(req, res) {
   try {
     let regenerated = 0;
 
-    // для каждого повторяющегося шаблона — убедиться, что есть будущий экземпляр
     const { rows: templates } = await db.query(`SELECT * FROM recurring_events`);
     for (const tpl of templates) {
       const { rows: future } = await db.query(
-        `SELECT id FROM events WHERE recurring_id=$1 AND event_at >= now() LIMIT 1`,
+        `SELECT event_at FROM events WHERE recurring_id=$1 AND event_at >= now() ORDER BY event_at DESC`,
         [tpl.id]
       );
-      if (future.length > 0) continue;
+      const missing = RECURRING_BUFFER_SIZE - future.length;
+      if (missing <= 0) continue;
 
       const tz = await tzFor(tpl.chat_id);
-      const nextEventAtIso = nextRecurringOccurrenceUtcIso(tpl, tz);
-      const remindAtIso = new Date(
-        new Date(nextEventAtIso).getTime() - tpl.remind_offset_minutes * 60000
-      ).toISOString();
+      const afterIso = future.length > 0 ? future[0].event_at : undefined;
+      const newOccurrences = nextNOccurrencesUtcIso(tpl, tz, missing, afterIso);
 
-      await db.query(
-        `INSERT INTO events (chat_id, title, emoji, event_at, remind_at, recurring_id) VALUES ($1,$2,$3,$4,$5,$6)`,
-        [tpl.chat_id, tpl.title, tpl.emoji, nextEventAtIso, remindAtIso, tpl.id]
-      );
-      regenerated += 1;
+      for (const occIso of newOccurrences) {
+        const remindIso = new Date(
+          new Date(occIso).getTime() - tpl.remind_offset_minutes * 60000
+        ).toISOString();
+        await db.query(
+          `INSERT INTO events (chat_id, title, emoji, event_at, remind_at, recurring_id) VALUES ($1,$2,$3,$4,$5,$6)`,
+          [tpl.chat_id, tpl.title, tpl.emoji, occIso, remindIso, tpl.id]
+        );
+        regenerated += 1;
+      }
     }
 
     const { rows } = await db.query(
