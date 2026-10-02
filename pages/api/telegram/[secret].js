@@ -8,6 +8,7 @@ const {
   formatDateHuman,
   utcIsoToLocalParts,
   nextRecurringOccurrenceUtcIso,
+  nextNOccurrencesUtcIso,
 } = require("../../../lib/time");
 const db = require("../../../lib/db");
 const { loadContext, saveContext } = require("../../../lib/context");
@@ -27,6 +28,10 @@ const MONTHS_GEN = [
 
 // часовые пояса, доступные через команду /timezone (ручная подстраховка —
 // основной способ настройки часового пояса теперь автоматический, через приложение-календарь)
+// сколько ближайших повторений держим материализованными заранее —
+// чтобы в календаре было видно наперёд, а не только ближайшее дело
+const RECURRING_BUFFER_SIZE = 8;
+
 const TZ_CHOICES = [
   { label: "Москва (+03:00)", offset: "+03:00" },
   { label: "Пермь (+05:00)", offset: "+05:00" },
@@ -575,15 +580,21 @@ async function handleCreateRecurringEvent(chatId, parsed, patch, tz) {
   const recurringId = insertRes.rows[0].id;
 
   const tpl = { frequency, weekday: weekdayNum, month_day: monthDay, month, time };
-  const nextEventAtIso = nextRecurringOccurrenceUtcIso(tpl, tz);
-  const remindAtIso = new Date(new Date(nextEventAtIso).getTime() - offsetMin * 60000).toISOString();
+  // сразу создаём запас из нескольких ближайших повторений, а не одно —
+  // чтобы в календаре-приложении было видно наперёд, а не только ближайшее
+  const occurrences = nextNOccurrencesUtcIso(tpl, tz, RECURRING_BUFFER_SIZE);
+  let firstEventId = null;
+  for (const occIso of occurrences) {
+    const remindIso = new Date(new Date(occIso).getTime() - offsetMin * 60000).toISOString();
+    const ev = await db.query(
+      `INSERT INTO events (chat_id, title, emoji, event_at, remind_at, recurring_id) VALUES ($1,$2,$3,$4,$5,$6) RETURNING id`,
+      [chatId, parsed.title, emoji, occIso, remindIso, recurringId]
+    );
+    if (firstEventId === null) firstEventId = ev.rows[0].id;
+  }
+  patch.last_event_id = firstEventId;
 
-  const ev = await db.query(
-    `INSERT INTO events (chat_id, title, emoji, event_at, remind_at, recurring_id) VALUES ($1,$2,$3,$4,$5,$6) RETURNING id`,
-    [chatId, parsed.title, emoji, nextEventAtIso, remindAtIso, recurringId]
-  );
-  patch.last_event_id = ev.rows[0].id;
-
+  const nextEventAtIso = occurrences[0];
   const local = utcIsoToLocalParts(nextEventAtIso, tz);
   const timeNote = parsed.event_time ? "" : " (время не назвал — поставил на 09:00, поправь, если не то)";
   await sendMessage(
