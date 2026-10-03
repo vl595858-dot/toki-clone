@@ -140,6 +140,12 @@ function Planner({ initData, tzOffset }) {
 
   useEffect(() => { load(); }, [load]);
 
+  useEffect(() => {
+    const lastDay = new Date(month.getFullYear(), month.getMonth() + 1, 0);
+    const neededFwd = Math.round((sod(lastDay) - today) / 864e5);
+    if (neededFwd > fwd) setFwd(neededFwd);
+  }, [month]);
+
   const patchEvent = async (id, body, optimistic) => {
     if (optimistic) setEvents((list) => optimistic(list));
     setSyncing(true);
