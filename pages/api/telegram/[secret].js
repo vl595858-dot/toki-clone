@@ -1,6 +1,6 @@
 const { sendMessage, answerCallbackQuery } = require("../../../lib/telegram");
 const { transcribeVoice, parseMessage } = require("../../../lib/ai");
-const { getWeatherText } = require("../../../lib/weather");
+const { getWeatherText, getTimezoneOffsetForCity } = require("../../../lib/weather");
 const {
   todayInOffset,
   toUtcIso,
@@ -75,6 +75,11 @@ async function handleCallbackQuery(cq) {
     const label = TZ_CHOICES.find((c) => c.offset === offset)?.label || offset;
     await answerCallbackQuery(cq.id, "Часовой пояс сохранён");
     await sendMessage(chatId, `✅ Часовой пояс установлен: ${label}`);
+
+    const ctx = await loadContext(chatId);
+    if (ctx.pending && ctx.pending.type === "timezone_city") {
+      await saveContext(chatId, { ...ctx, pending: null });
+    }
   }
 }
 
@@ -123,21 +128,40 @@ async function handleUpdate(update) {
     return;
   }
 
+  // память диалога нужна уже здесь, чтобы понять ответ на /timezone городом
+  const ctx = await loadContext(chatId);
+  const patch = { pending: null }; // ожидание живёт только один шаг, если хендлер не поставит новое
+
+  if (ctx.pending && ctx.pending.type === "timezone_city") {
+    const cityName = text.trim();
+    const result = await getTimezoneOffsetForCity(cityName);
+    if (!result) {
+      await sendMessage(
+        chatId,
+        `Не нашёл город «${cityName}». Попробуй написать иначе, либо используй кнопки из /timezone.`
+      );
+      patch.pending = { type: "timezone_city" };
+    } else {
+      await setTzOffset(chatId, result.offset);
+      await sendMessage(chatId, `✅ Часовой пояс установлен по городу «${result.placeName}»: ${result.offset}`);
+    }
+    await saveContext(chatId, { ...ctx, ...patch });
+    return;
+  }
+
   if (text.trim() === "/timezone") {
-    await sendMessage(chatId, "Выбери часовой пояс:", {
+    await sendMessage(chatId, "Выбери часовой пояс кнопкой или просто напиши название своего города:", {
       replyMarkup: {
         inline_keyboard: [TZ_CHOICES.map((c) => ({ text: c.label, callback_data: `tz:${c.offset}` }))],
       },
     });
+    patch.pending = { type: "timezone_city" };
+    await saveContext(chatId, { ...ctx, ...patch });
     return;
   }
 
   // часовой пояс этого конкретного чата — свой на каждого человека
   const tz = await getTzOffset(chatId);
-
-  // память диалога: что бот ждёт от пользователя и о чём шла речь в последний час
-  const ctx = await loadContext(chatId);
-  const patch = { pending: null }; // ожидание живёт только один шаг, если хендлер не поставит новое
 
   let parsed;
   let contextText = "";
