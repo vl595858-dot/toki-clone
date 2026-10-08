@@ -14,6 +14,7 @@ const db = require("../../../lib/db");
 const { loadContext, saveContext } = require("../../../lib/context");
 const { getTzOffset, setTzOffset } = require("../../../lib/settings");
 const { stripContextWords } = require("../../../lib/text");
+const { buildContextText } = require("../../../lib/contextText");
 
 const { WEEKDAY_NUM, WEEKDAY_RU, MONTHS_GEN, RECURRING_BUFFER_SIZE, TZ_CHOICES } = require("../../../lib/constants");
 
@@ -208,48 +209,6 @@ async function dispatch(chatId, parsed, ctx, patch, tz) {
     chatId,
     "Не понял, о чём речь 🤔 Можешь переформулировать? Например: «Позвонить маме завтра в 12:00, напомни за 30 минут»."
   );
-}
-
-/* ---- справка для модели о текущем состоянии разговора ---- */
-async function buildContextText(chatId, ctx, tz) {
-  try {
-    const lines = [];
-    const pending = ctx.pending;
-    if (pending && pending.type === "weather_region") {
-      lines.push(
-        `Бот только что спросил у пользователя город для погоды и ждёт название места (weather_offset_days=${
-          pending.weather_offset_days ?? 0
-        }).`
-      );
-    }
-    if (pending && pending.type === "reschedule_time") {
-      lines.push("Бот только что спросил, на какое время перенести дело, и ждёт новую дату или время.");
-    }
-    if (pending && pending.type === "reminder_offset") {
-      lines.push("Бот только что спросил, за сколько напомнить о деле, и ждёт интервал (например «за час»).");
-    }
-    if (ctx.last_event_id) {
-      const { rows } = await db.query(`SELECT title, event_at FROM events WHERE id=$1 AND chat_id=$2`, [
-        ctx.last_event_id,
-        chatId,
-      ]);
-      if (rows.length) {
-        const local = utcIsoToLocalParts(rows[0].event_at, tz);
-        lines.push(
-          `Последнее дело, о котором шла речь: «${rows[0].title}» — ${formatDateHuman(local.dateStr, local.timeStr)}.`
-        );
-      }
-    }
-    if (ctx.last_region) {
-      lines.push(
-        `Последний запрос погоды: город «${ctx.last_region}», weather_offset_days=${ctx.last_weather_offset_days ?? 0}.`
-      );
-    }
-    return lines.join("\n");
-  } catch (e) {
-    console.error("buildContextText error", e);
-    return "";
-  }
 }
 
 /* ---- погода ---- */
