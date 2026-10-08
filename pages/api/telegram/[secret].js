@@ -1,18 +1,7 @@
-const { sendMessage, answerCallbackQuery } = require("../../../lib/telegram");
+const { sendMessage } = require("../../../lib/telegram");
 const { transcribeVoice, parseMessage } = require("../../../lib/ai");
-const { getTimezoneOffsetForCity } = require("../../../lib/weather");
-const {
-  todayInOffset,
-  toUtcIso,
-  offsetMinutesToPhrase,
-  formatDateHuman,
-  utcIsoToLocalParts,
-  nextRecurringOccurrenceUtcIso,
-  nextNOccurrencesUtcIso,
-} = require("../../../lib/time");
-const db = require("../../../lib/db");
 const { loadContext, saveContext } = require("../../../lib/context");
-const { getTzOffset, setTzOffset } = require("../../../lib/settings");
+const { getTzOffset } = require("../../../lib/settings");
 const { stripContextWords } = require("../../../lib/text");
 const { buildContextText } = require("../../../lib/contextText");
 const { handleWeather } = require("../../../lib/handlers/weather");
@@ -23,7 +12,6 @@ const { handleCancelReminder, handleSetReminder } = require("../../../lib/handle
 const { handleDeleteEvent, handleRescheduleEvent } = require("../../../lib/handlers/eventsEdit");
 const { handleCreateEvent, handleListEvents } = require("../../../lib/handlers/events");
 
-const { WEEKDAY_NUM, WEEKDAY_RU, MONTHS_GEN, RECURRING_BUFFER_SIZE, TZ_CHOICES } = require("../../../lib/constants");
 
 export const config = {
   api: { bodyParser: true },
