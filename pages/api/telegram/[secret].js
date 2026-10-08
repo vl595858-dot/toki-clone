@@ -14,28 +14,7 @@ const db = require("../../../lib/db");
 const { loadContext, saveContext } = require("../../../lib/context");
 const { getTzOffset, setTzOffset } = require("../../../lib/settings");
 
-const WEEKDAY_NUM = {
-  sunday: 0, monday: 1, tuesday: 2, wednesday: 3, thursday: 4, friday: 5, saturday: 6,
-};
-const WEEKDAY_RU = {
-  0: "воскресенье", 1: "понедельник", 2: "вторник", 3: "среду",
-  4: "четверг", 5: "пятницу", 6: "субботу",
-};
-const MONTHS_GEN = [
-  "января","февраля","марта","апреля","мая","июня",
-  "июля","августа","сентября","октября","ноября","декабря",
-];
-
-// часовые пояса, доступные через команду /timezone (ручная подстраховка —
-// основной способ настройки часового пояса теперь автоматический, через приложение-календарь)
-// сколько ближайших повторений держим материализованными заранее —
-// чтобы в календаре было видно наперёд, а не только ближайшее дело
-const RECURRING_BUFFER_SIZE = 8;
-
-const TZ_CHOICES = [
-  { label: "Москва (+03:00)", offset: "+03:00" },
-  { label: "Пермь (+05:00)", offset: "+05:00" },
-];
+const { WEEKDAY_NUM, WEEKDAY_RU, MONTHS_GEN, RECURRING_BUFFER_SIZE, TZ_CHOICES } = require("../../../lib/constants");
 
 export const config = {
   api: { bodyParser: true },
