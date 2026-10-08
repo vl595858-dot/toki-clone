@@ -16,6 +16,7 @@ const { getTzOffset, setTzOffset } = require("../../../lib/settings");
 const { stripContextWords } = require("../../../lib/text");
 const { buildContextText } = require("../../../lib/contextText");
 const { handleWeather } = require("../../../lib/handlers/weather");
+const { handleCallbackQuery, handleTimezoneCityReply, handleTimezoneCommand } = require("../../../lib/handlers/timezone");
 
 const { WEEKDAY_NUM, WEEKDAY_RU, MONTHS_GEN, RECURRING_BUFFER_SIZE, TZ_CHOICES } = require("../../../lib/constants");
 
@@ -44,25 +45,6 @@ export default async function handler(req, res) {
     console.error("handleUpdate error", e);
   }
   res.status(200).json({ ok: true });
-}
-
-/* ---- нажатие кнопки под сообщением (пока только выбор часового пояса) ---- */
-async function handleCallbackQuery(cq) {
-  const chatId = cq.message?.chat?.id;
-  if (!chatId || !cq.data) return;
-
-  if (cq.data.startsWith("tz:")) {
-    const offset = cq.data.slice(3);
-    await setTzOffset(chatId, offset);
-    const label = TZ_CHOICES.find((c) => c.offset === offset)?.label || offset;
-    await answerCallbackQuery(cq.id, "Часовой пояс сохранён");
-    await sendMessage(chatId, `✅ Часовой пояс установлен: ${label}`);
-
-    const ctx = await loadContext(chatId);
-    if (ctx.pending && ctx.pending.type === "timezone_city") {
-      await saveContext(chatId, { ...ctx, pending: null });
-    }
-  }
 }
 
 async function handleUpdate(update) {
@@ -115,30 +97,11 @@ async function handleUpdate(update) {
   const patch = { pending: null }; // ожидание живёт только один шаг, если хендлер не поставит новое
 
   if (ctx.pending && ctx.pending.type === "timezone_city") {
-    const cityName = text.trim();
-    const result = await getTimezoneOffsetForCity(cityName);
-    if (!result) {
-      await sendMessage(
-        chatId,
-        `Не нашёл город «${cityName}». Попробуй написать иначе, либо используй кнопки из /timezone.`
-      );
-      patch.pending = { type: "timezone_city" };
-    } else {
-      await setTzOffset(chatId, result.offset);
-      await sendMessage(chatId, `✅ Часовой пояс установлен по городу «${result.placeName}»: ${result.offset}`);
-    }
-    await saveContext(chatId, { ...ctx, ...patch });
+    await handleTimezoneCityReply(chatId, text, ctx, patch);
     return;
   }
-
   if (text.trim() === "/timezone") {
-    await sendMessage(chatId, "Выбери часовой пояс кнопкой или просто напиши название своего города:", {
-      replyMarkup: {
-        inline_keyboard: [TZ_CHOICES.map((c) => ({ text: c.label, callback_data: `tz:${c.offset}` }))],
-      },
-    });
-    patch.pending = { type: "timezone_city" };
-    await saveContext(chatId, { ...ctx, ...patch });
+    await handleTimezoneCommand(chatId, ctx, patch);
     return;
   }
 
