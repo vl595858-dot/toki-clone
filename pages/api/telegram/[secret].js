@@ -1,6 +1,6 @@
 const { sendMessage, answerCallbackQuery } = require("../../../lib/telegram");
 const { transcribeVoice, parseMessage } = require("../../../lib/ai");
-const { getWeatherText, getTimezoneOffsetForCity } = require("../../../lib/weather");
+const { getTimezoneOffsetForCity } = require("../../../lib/weather");
 const {
   todayInOffset,
   toUtcIso,
@@ -15,6 +15,7 @@ const { loadContext, saveContext } = require("../../../lib/context");
 const { getTzOffset, setTzOffset } = require("../../../lib/settings");
 const { stripContextWords } = require("../../../lib/text");
 const { buildContextText } = require("../../../lib/contextText");
+const { handleWeather } = require("../../../lib/handlers/weather");
 
 const { WEEKDAY_NUM, WEEKDAY_RU, MONTHS_GEN, RECURRING_BUFFER_SIZE, TZ_CHOICES } = require("../../../lib/constants");
 
@@ -209,25 +210,6 @@ async function dispatch(chatId, parsed, ctx, patch, tz) {
     chatId,
     "Не понял, о чём речь 🤔 Можешь переформулировать? Например: «Позвонить маме завтра в 12:00, напомни за 30 минут»."
   );
-}
-
-/* ---- погода ---- */
-async function handleWeather(chatId, parsed, ctx, patch) {
-  const region = parsed.region || ctx.last_region || null;
-  const offsetDays = Number.isFinite(parsed.weather_offset_days) ? parsed.weather_offset_days : 0;
-
-  if (!region) {
-    await sendMessage(chatId, "Для какого города показать погоду? Напиши название — например, «Пермь».");
-    patch.pending = { type: "weather_region", weather_offset_days: offsetDays };
-    return;
-  }
-
-  const reply = await getWeatherText(region, offsetDays, parsed.weather_part_of_day, parsed.weather_hour);
-  await sendMessage(chatId, reply);
-  if (reply.startsWith("📍")) {
-    patch.last_region = region;
-    patch.last_weather_offset_days = offsetDays;
-  }
 }
 
 /* ---- создание события ---- */
