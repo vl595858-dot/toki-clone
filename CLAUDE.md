@@ -13,8 +13,18 @@ Telegram-бот-органайзер @moideladelishki_bot и Mini App «Кале
 - Напоминания: cron-job.org раз в минуту вызывает /api/cron/reminders с Bearer CRON_SECRET
 - Секреты ТОЛЬКО в переменных окружения Vercel. В репозиторий и в этот файл ключи не писать.
 
-## Структура файлов (сейчас)
-- pages/api/telegram/[secret].js — главный файл бота (702 строки: роутер + все обработчики + утилиты)
+## Структура файлов
+- pages/api/telegram/[secret].js — только роутер (~170 строк): handler (вебхук), handleUpdate (голос, /start, загрузка памяти, разбор фразы), dispatch (выбор обработчика по intent)
+- lib/handlers/weather.js — погода
+- lib/handlers/timezone.js — кнопки /timezone, ответ городом, команда /timezone
+- lib/handlers/events.js — создание одного дела, список предстоящих
+- lib/handlers/eventTarget.js — общий поиск дела по названию или «последнее из памяти» (resolveTarget, replyNotFound)
+- lib/handlers/eventsEdit.js — удаление и перенос дела
+- lib/handlers/reminders.js — отмена и установка напоминания у существующего дела
+- lib/handlers/recurring.js — создание и остановка повторяющихся дел
+- lib/constants.js — дни недели, месяцы, размер буфера повторов (8), список часовых поясов для /timezone
+- lib/text.js — защита от слов из памяти в названии нового дела (stripContextWords)
+- lib/contextText.js — справка для модели о состоянии разговора (buildContextText)
 - lib/ai.js — Whisper и разбор фразы моделью (промпт с правилами intents)
 - lib/time.js — все операции с датами, часовыми поясами и повторами
 - lib/weather.js — погода и часовой пояс города
@@ -23,12 +33,7 @@ Telegram-бот-органайзер @moideladelishki_bot и Mini App «Кале
 - pages/api/cron/reminders.js — рассылка напоминаний и пополнение повторов
 - pages/api/webapp/* — API для календаря; pages/calendar.js — Mini App
 - schema.sql — справочная копия схемы БД
-
-## Целевая структура (после разбиения [secret].js)
-- [secret].js — только handler, handleUpdate, dispatch (~150 строк)
-- lib/handlers/weather.js, timezone.js, events.js, eventTarget.js, eventsEdit.js, reminders.js, recurring.js
-- lib/constants.js (константы), lib/text.js (wordTokens, sameWord, stripContextWords), lib/contextText.js (buildContextText)
-- Принцип: один файл = одна ответственность, ориентир 50–150 строк.
+Принцип: один файл = одна тема, ориентир 50–150 строк. Чтобы поправить поведение — открывать только нужный файл из lib/handlers/.
 
 ## Технические решения
 - Даты в БД хранятся в UTC (timestamptz). Конвертация только через lib/time.js.
