@@ -5,7 +5,7 @@ const { getTzOffset } = require("../../../lib/settings");
 const { stripContextWords } = require("../../../lib/text");
 const { buildContextText } = require("../../../lib/contextText");
 const { handleWeather } = require("../../../lib/handlers/weather");
-const { handleCallbackQuery, handleTimezoneCityReply, handleTimezoneCommand } = require("../../../lib/handlers/timezone");
+const { handleCallbackQuery, handleTimezoneCityReply, handleTimezoneCommand, askCityIfNew } = require("../../../lib/handlers/timezone");
 const { handleCreateRecurringEvent, handleDeleteRecurringEvent } = require("../../../lib/handlers/recurring");
 const { resolveTarget, replyNotFound } = require("../../../lib/handlers/eventTarget");
 const { handleCancelReminder, handleSetReminder } = require("../../../lib/handlers/reminders");
@@ -36,6 +36,15 @@ export default async function handler(req, res) {
     }
   } catch (e) {
     console.error("handleUpdate error", e);
+    // чтобы бот не молчал при сбое — коротко сообщаем человеку
+    const errChatId = req.body?.message?.chat?.id || req.body?.callback_query?.message?.chat?.id;
+    if (errChatId) {
+      try {
+        await sendMessage(errChatId, "Что-то пошло не так, попробуй ещё раз 🙏");
+      } catch (e2) {
+        console.error("error notice failed", e2);
+      }
+    }
   }
   res.status(200).json({ ok: true });
 }
@@ -80,18 +89,19 @@ async function handleUpdate(update) {
         "«Останови повторяющееся собрание с партнёрами»\n\n" +
         "Я помню последний час разговора: после записи дела можно написать «перенеси его на пятницу» или «напомни за час».\n\n" +
         "Про погоду тоже можно спросить: «погода в Перми послезавтра», а потом «а завтра?»\n\n" +
-        "Часовой пояс можно посмотреть и поменять командой /timezone."
+        "Чтобы поменять часовой пояс, напиши /timezone и свой город."
     );
+    await askCityIfNew(chatId);
     return;
   }
 
   // память диалога нужна уже здесь, чтобы понять ответ на /timezone городом
-  const ctx = await loadContext(chatId);
+  let ctx = await loadContext(chatId);
   const patch = { pending: null }; // ожидание живёт только один шаг, если хендлер не поставит новое
 
   if (ctx.pending && ctx.pending.type === "timezone_city") {
-    await handleTimezoneCityReply(chatId, text, ctx, patch);
-    return;
+    if (await handleTimezoneCityReply(chatId, text, ctx, patch)) return;
+    ctx = { ...ctx, pending: null }; // это не город — разбираем как обычную команду
   }
   if (text.trim() === "/timezone") {
     await handleTimezoneCommand(chatId, ctx, patch);

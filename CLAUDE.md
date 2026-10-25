@@ -16,13 +16,13 @@ Telegram-бот-органайзер @moideladelishki_bot и Mini App «Кале
 ## Структура файлов
 - pages/api/telegram/[secret].js — только роутер (~170 строк): handler (вебхук), handleUpdate (голос, /start, загрузка памяти, разбор фразы), dispatch (выбор обработчика по intent)
 - lib/handlers/weather.js — погода
-- lib/handlers/timezone.js — кнопки /timezone, ответ городом, команда /timezone
+- lib/handlers/timezone.js — команда /timezone, ответ городом, вопрос о городе новым пользователям (после /start)
 - lib/handlers/events.js — создание одного дела, список предстоящих
 - lib/handlers/eventTarget.js — общий поиск дела по названию или «последнее из памяти» (resolveTarget, replyNotFound)
 - lib/handlers/eventsEdit.js — удаление и перенос дела
 - lib/handlers/reminders.js — отмена и установка напоминания у существующего дела
 - lib/handlers/recurring.js — создание и остановка повторяющихся дел
-- lib/constants.js — дни недели, месяцы, размер буфера повторов (8), список часовых поясов для /timezone
+- lib/constants.js — дни недели, месяцы, размер буфера повторов (8)
 - lib/text.js — защита от слов из памяти в названии нового дела (stripContextWords)
 - lib/contextText.js — справка для модели о состоянии разговора (buildContextText)
 - lib/ai.js — Whisper и разбор фразы моделью (промпт с правилами intents)
@@ -54,7 +54,7 @@ Telegram-бот-органайзер @moideladelishki_bot и Mini App «Кале
 - GitHub Actions по расписанию ненадёжен — заменён на cron-job.org, возвращаться не нужно.
 - Старые повторяющиеся дела без буфера нужно пересоздать вручную.
 - Отложено: переспрашивание при нескольких похожих делах; несколько напоминаний на одно дело (нужна смена схемы БД);
-  смена ключей безопасности; список разрешённых чатов и лимит трат OpenAI; подсказка о /timezone для новых пользователей.
+  смена ключей безопасности; список разрешённых чатов и лимит трат OpenAI.
 
 ## Правила работы
 1. Никогда не переписывать файл целиком ради маленькой правки.
