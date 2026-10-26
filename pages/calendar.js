@@ -73,16 +73,26 @@ export default function CalendarPage() {
     initDataCache = tg.initData;
     setInitData(tg.initData);
 
-    const offset = detectTzOffset();
-    setTzOffset(offset);
-    // сообщаем боту тот же часовой пояс, которым пользуется приложение —
-    // голосовые команды в чате начнут считать время так же, как здесь на экране
-    api(tg.initData, "/api/webapp/timezone", {
-      method: "POST",
-      body: JSON.stringify({ offset }),
-    }).catch(() => {});
-
-    setReady(true);
+    // если у человека уже задан пояс (по городу через бот) — календарь живёт по нему и ничего не перезаписывает.
+    // Если пояс ещё ни разу не задавали — берём пояс телефона и запоминаем его для бота.
+    (async () => {
+      let offset = detectTzOffset();
+      try {
+        const saved = await api(tg.initData, "/api/webapp/timezone");
+        if (saved.custom && saved.offset) {
+          offset = saved.offset;
+        } else {
+          api(tg.initData, "/api/webapp/timezone", {
+            method: "POST",
+            body: JSON.stringify({ offset }),
+          }).catch(() => {});
+        }
+      } catch (e) {
+        // не получилось узнать сохранённый пояс — остаёмся на поясе телефона, ничего не записываем
+      }
+      setTzOffset(offset);
+      setReady(true);
+    })();
   }, []);
 
   return (

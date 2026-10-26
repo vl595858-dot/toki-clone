@@ -1,5 +1,5 @@
 const { requireTelegramUser } = require("./_auth");
-const { getTzOffset, setTzOffset } = require("../../../lib/settings");
+const { getTzOffset, setTzOffset, hasTzSetting } = require("../../../lib/settings");
 
 export default async function handler(req, res) {
   const chatId = requireTelegramUser(req, res);
@@ -7,7 +7,8 @@ export default async function handler(req, res) {
 
   if (req.method === "GET") {
     const offset = await getTzOffset(chatId);
-    res.status(200).json({ offset });
+    const custom = await hasTzSetting(chatId); // true — пояс уже задан (например, по городу), его менять нельзя
+    res.status(200).json({ offset, custom });
     return;
   }
 
