@@ -2,7 +2,7 @@ const { sendMessage } = require("../../../lib/telegram");
 const { transcribeVoice, parseMessage } = require("../../../lib/ai");
 const { loadContext, saveContext } = require("../../../lib/context");
 const { getTzOffset } = require("../../../lib/settings");
-const { stripContextWords } = require("../../../lib/text");
+const { stripContextWords, extractOffsetMinutes } = require("../../../lib/text");
 const { buildContextText } = require("../../../lib/contextText");
 const { handleWeather } = require("../../../lib/handlers/weather");
 const { handleCallbackQuery, handleTimezoneCityReply, handleTimezoneCommand, askCityIfNew } = require("../../../lib/handlers/timezone");
@@ -126,6 +126,12 @@ async function handleUpdate(update) {
     console.error("parse error", e);
     await sendMessage(chatId, "Не разобрал сообщение. Попробуй сформулировать иначе.");
     return;
+  }
+
+  // интервал напоминания, названный в самом сообщении, модель иногда теряет — берём из текста
+  if (parsed.intent === "set_reminder" && !Number.isFinite(parsed.remind_offset_minutes)) {
+    const off = extractOffsetMinutes(text);
+    if (off) parsed.remind_offset_minutes = off;
   }
 
   // модель иногда подмешивает в название нового дела слова из памяти диалога — убираем их
