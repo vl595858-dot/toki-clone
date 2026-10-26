@@ -4,6 +4,7 @@ const db = require("../../../lib/db");
 const { getTzOffset } = require("../../../lib/settings");
 
 const RECURRING_BUFFER_SIZE = 8;
+const STALE_AFTER_MS = 2 * 60 * 60 * 1000; // напоминания о делах, прошедших больше 2 часов назад, не отправляем
 
 export default async function handler(req, res) {
   const auth = req.headers.authorization;
@@ -46,11 +47,26 @@ export default async function handler(req, res) {
       }
     }
 
-    const { rows } = await db.query(
-      `SELECT * FROM events WHERE reminded = FALSE AND remind_at <= now() ORDER BY remind_at LIMIT 50`
+    // «занимаем» пачку напоминаний одним запросом: так два одновременных запуска не отправят одно и то же дважды
+    const { rows: claimed } = await db.query(
+      `UPDATE events SET reminded = TRUE
+       WHERE id IN (
+         SELECT id FROM events
+         WHERE reminded = FALSE AND remind_at <= now()
+         ORDER BY remind_at LIMIT 50
+         FOR UPDATE SKIP LOCKED
+       )
+       RETURNING *`
     );
+    const rows = claimed.sort((x, y) => new Date(x.remind_at) - new Date(y.remind_at));
 
+    let skipped = 0;
     for (const ev of rows) {
+      // событие давно прошло (например, был простой) — не шлём устаревшее, оно уже помечено отправленным
+      if (new Date(ev.event_at).getTime() < Date.now() - STALE_AFTER_MS) {
+        skipped += 1;
+        continue;
+      }
       const tz = await tzFor(ev.chat_id);
       const { dateStr, timeStr } = utcIsoToLocalParts(ev.event_at, tz);
       const text =
@@ -58,13 +74,14 @@ export default async function handler(req, res) {
         `🗓 Событие: ${formatDateHuman(dateStr, timeStr)}`;
       try {
         await sendMessage(ev.chat_id, text);
-        await db.query(`UPDATE events SET reminded = TRUE WHERE id = $1`, [ev.id]);
       } catch (e) {
         console.error("reminder send failed for", ev.id, e);
+        // не отправилось — снимаем отметку, следующая минута повторит попытку
+        await db.query(`UPDATE events SET reminded = FALSE WHERE id = $1`, [ev.id]);
       }
     }
 
-    res.status(200).json({ processed: rows.length, regenerated });
+    res.status(200).json({ processed: rows.length - skipped, skipped, regenerated });
   } catch (e) {
     console.error("cron reminders error", e);
     res.status(500).json({ error: String(e) });
