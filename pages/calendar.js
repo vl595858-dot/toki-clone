@@ -198,6 +198,7 @@ function Planner({ initData, tzOffset }) {
   const remove = async (ev) => {
     setEvents((list) => list.filter((e) => e.id !== ev.id));
     setSyncing(true);
+    setErr("");
     try {
       await api(initData, `/api/webapp/events/${ev.id}`, { method: "DELETE" });
     } catch (e) {
