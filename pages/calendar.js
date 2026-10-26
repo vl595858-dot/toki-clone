@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useRef } from "react";
+import React, { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import Head from "next/head";
 import Script from "next/script";
 import {
@@ -122,7 +122,9 @@ export default function CalendarPage() {
 }
 
 function Planner({ initData, tzOffset }) {
-  const today = sod(new Date());
+  // «сегодня» не должно пересоздаваться при каждой отрисовке — иначе load() срабатывает бесконечно
+  const todayKey = key(sod(new Date()));
+  const today = useMemo(() => sod(new Date()), [todayKey]);
   const [events, setEvents] = useState([]);
   const [syncing, setSyncing] = useState(false);
   const [err, setErr] = useState("");
