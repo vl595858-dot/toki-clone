@@ -11,6 +11,7 @@ const { resolveTarget, replyNotFound } = require("../../../lib/handlers/eventTar
 const { handleCancelReminder, handleSetReminder } = require("../../../lib/handlers/reminders");
 const { handleDeleteEvent, handleRescheduleEvent } = require("../../../lib/handlers/eventsEdit");
 const { handleCreateEvent, handleListEvents } = require("../../../lib/handlers/events");
+const { handleChooseEvent } = require("../../../lib/handlers/choose");
 
 
 export const config = {
@@ -105,6 +106,12 @@ async function handleUpdate(update) {
   if (text.trim() === "/timezone") {
     await handleTimezoneCommand(chatId, ctx, patch);
     return;
+  }
+
+  // бот спросил «какое из нескольких дел?» — ждём номер
+  if (ctx.pending && ctx.pending.type === "choose_event") {
+    if (await handleChooseEvent(chatId, text, ctx, patch, await getTzOffset(chatId))) return;
+    ctx = { ...ctx, pending: null }; // это не ответ на вопрос — разбираем как обычную команду
   }
 
   // часовой пояс этого конкретного чата — свой на каждого человека
