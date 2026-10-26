@@ -39,10 +39,25 @@ export default async function handler(req, res) {
     }
     const tz = await getTzOffset(chatId);
     const dateStr = date || todayInOffset(tz);
-    const timeStr = time || "09:00";
+    const timeStr = time || "12:00"; // без времени — полдень, как и в боте
     const eventAtIso = toUtcIso(dateStr, timeStr, tz);
-    const offsetMin = Number.isFinite(remindOffsetMinutes) ? remindOffsetMinutes : 0;
-    const remindAtIso = new Date(new Date(eventAtIso).getTime() - offsetMin * 60000).toISOString();
+    const eventMs = new Date(eventAtIso).getTime();
+
+    // время уже прошло — не записываем, как и в боте
+    if (eventMs <= Date.now()) {
+      res.status(400).json({
+        error: time
+          ? "⚠️ Это время уже прошло — выбери другое."
+          : "⚠️ Время не указано, а 12:00 этого дня уже прошло — укажи время или другой день.",
+      });
+      return;
+    }
+
+    // напоминание по умолчанию — за час; если за нужное время уже не успеть — напомним в момент дела
+    const offsetMin = Number.isFinite(remindOffsetMinutes) ? remindOffsetMinutes : 60;
+    let remindMs = eventMs - offsetMin * 60000;
+    if (remindMs <= Date.now()) remindMs = eventMs;
+    const remindAtIso = new Date(remindMs).toISOString();
 
     const ins = await db.query(
       `INSERT INTO events (chat_id, title, emoji, event_at, remind_at) VALUES ($1,$2,$3,$4,$5) RETURNING id`,
