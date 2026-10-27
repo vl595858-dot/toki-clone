@@ -47,3 +47,9 @@ CREATE TABLE IF NOT EXISTS user_settings (
   tz_offset TEXT NOT NULL,
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+-- обработанные сообщения Telegram (защита от дублей; создаётся автоматически, старше суток чистится)
+CREATE TABLE IF NOT EXISTS processed_updates (
+  update_id BIGINT PRIMARY KEY,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);

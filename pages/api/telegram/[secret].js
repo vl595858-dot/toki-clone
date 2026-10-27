@@ -12,6 +12,7 @@ const { handleCancelReminder, handleSetReminder } = require("../../../lib/handle
 const { handleDeleteEvent, handleRescheduleEvent } = require("../../../lib/handlers/eventsEdit");
 const { handleCreateEvent, handleListEvents } = require("../../../lib/handlers/events");
 const { handleChooseEvent } = require("../../../lib/handlers/choose");
+const { claimUpdate } = require("../../../lib/dedupe");
 
 
 export const config = {
@@ -26,6 +27,11 @@ export default async function handler(req, res) {
   }
   if (req.query.secret !== process.env.TELEGRAM_WEBHOOK_SECRET) {
     res.status(403).end();
+    return;
+  }
+
+  if (!(await claimUpdate(req.body.update_id))) {
+    res.status(200).json({ ok: true, duplicate: true });
     return;
   }
 

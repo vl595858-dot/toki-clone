@@ -28,6 +28,7 @@ Telegram-бот-органайзер @moideladelishki_bot и Mini App «Кале
 - lib/ai.js — Whisper и разбор фразы моделью (промпт с правилами intents)
 - lib/time.js — все операции с датами, часовыми поясами и повторами
 - lib/weather.js — погода и часовой пояс города
+- lib/dedupe.js — защита от повторов вебхука Telegram (таблица processed_updates, создаётся сама)
 - lib/context.js — память диалога; lib/settings.js — часовой пояс чата
 - lib/telegram.js — отправка сообщений и файлов; lib/telegramAuth.js — проверка initData; lib/db.js — подключение к БД
 - pages/api/cron/reminders.js — рассылка напоминаний и пополнение повторов
@@ -45,7 +46,7 @@ Telegram-бот-органайзер @moideladelishki_bot и Mini App «Кале
   Модели ЗАПРЕЩЕНО вычислять remind_offset_minutes разностью времён.
 - Вебхук сначала дожидается обработки и только потом отвечает 200 (maxDuration 10).
 - Mini App: авторизация по initData (HMAC-SHA256), заголовок Authorization: tma <initData>.
-- Таблицы БД: events, recurring_events, chat_context, user_settings (см. schema.sql).
+- Таблицы БД: events, recurring_events, chat_context, user_settings, processed_updates (см. schema.sql).
 
 ## Известные баги и что пробовали
 - cron-job.org сам отключает задание после серии ошибок 500. Лечение: «Изменить» → «Включить задание» → «Сохранить».
