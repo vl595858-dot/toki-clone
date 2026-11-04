@@ -154,14 +154,14 @@ async function handleUpdate(update) {
     else if (isAtEventMoment(text)) parsed.remind_offset_minutes = 0;
   }
 
-  // «напомни завтра в 15:00 …» или «в момент события» без названного интервала — напоминание ровно в момент дела, а не за час
-  if (
-    (parsed.intent === "create_event" || parsed.intent === "create_recurring_event") &&
-    !Number.isFinite(parsed.remind_offset_minutes)
-  ) {
+  // интервал напоминания при создании дела решает код по тексту, а не модель (она иногда берёт его из прошлых сообщений):
+  // назван интервал — он; «напомни …» или «в момент события» без интервала — ровно в момент дела;
+  // про напоминание ничего не сказано — null, и сработает значение по умолчанию (за час)
+  if (parsed.intent === "create_event" || parsed.intent === "create_recurring_event") {
     const off = extractOffsetMinutes(text);
     if (off) parsed.remind_offset_minutes = off;
     else if (/напомн/i.test(text) || isAtEventMoment(text)) parsed.remind_offset_minutes = 0;
+    else parsed.remind_offset_minutes = null;
   }
 
   // модель иногда подмешивает в название нового дела слова из памяти диалога — убираем их
