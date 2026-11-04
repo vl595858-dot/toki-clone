@@ -18,6 +18,7 @@ Telegram-бот-органайзер @moideladelishki_bot и Mini App «Кале
 - lib/handlers/weather.js — погода
 - lib/handlers/help.js — команда /help (короткая шпаргалка)
 - lib/handlers/calendar.js — команда /calendar (сообщение с кнопкой, открывающей Mini App)
+- lib/handlers/search.js — поиск дел по названию («когда встреча с Иваном?»)
 - lib/handlers/timezone.js — команда /timezone, ответ городом, вопрос о городе новым пользователям (после /start)
 - lib/handlers/events.js — создание одного дела, список предстоящих
 - lib/handlers/eventTarget.js — общий поиск дела по названию или «последнее из памяти» (resolveTarget, replyNotFound)

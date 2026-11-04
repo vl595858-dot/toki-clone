@@ -14,6 +14,7 @@ const { handleCreateEvent, handleListEvents } = require("../../../lib/handlers/e
 const { handleChooseEvent } = require("../../../lib/handlers/choose");
 const { handleHelp } = require("../../../lib/handlers/help");
 const { handleCalendar } = require("../../../lib/handlers/calendar");
+const { handleSearchEvents } = require("../../../lib/handlers/search");
 const { claimUpdate } = require("../../../lib/dedupe");
 
 
@@ -171,6 +172,10 @@ async function dispatch(chatId, parsed, ctx, patch, tz) {
   }
   if (parsed.intent === "list_events") {
     await handleListEvents(chatId, parsed.list_scope, tz);
+    return;
+  }
+  if (parsed.intent === "search_events") {
+    await handleSearchEvents(chatId, parsed, tz);
     return;
   }
   if (parsed.intent === "delete_event") {
