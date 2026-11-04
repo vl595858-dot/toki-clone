@@ -29,7 +29,8 @@ export default async function handler(req, res) {
     if (date || time) {
       const oldLocal = utcIsoToLocalParts(current.event_at, tz);
       const newDate = date || oldLocal.dateStr;
-      const newTime = time || oldLocal.timeStr;
+      // пустое время («без времени») = 12:00, как и везде в проекте
+      const newTime = time === "" ? "12:00" : time || oldLocal.timeStr;
       eventAtIso = toUtcIso(newDate, newTime, tz);
     }
 
@@ -42,9 +43,11 @@ export default async function handler(req, res) {
       remindAtIso = new Date(new Date(eventAtIso).getTime() - offsetMin * 60000).toISOString();
     }
 
+    // «напомнено» сбрасываем только если время дела сдвинулось; правка названия не должна повторять напоминание
+    const timeChanged = new Date(eventAtIso).getTime() !== new Date(current.event_at).getTime();
     await db.query(
-      `UPDATE events SET title=$1, event_at=$2, remind_at=$3, reminded=FALSE WHERE id=$4`,
-      [title ? title.trim() : current.title, eventAtIso, remindAtIso, id]
+      `UPDATE events SET title=$1, event_at=$2, remind_at=$3, reminded=$4 WHERE id=$5`,
+      [title ? title.trim() : current.title, eventAtIso, remindAtIso, timeChanged ? false : current.reminded, id]
     );
     res.status(200).json({ ok: true, eventAt: eventAtIso });
     return;

@@ -306,7 +306,7 @@ function Day({ date, today, items, onDelete, onEdit, onMove, menuFor, setMenuFor
       onDelete={() => onDelete(ev)}
       onEdit={(t, tm) => onEdit(ev, t, tm)} onMove={(dk) => onMove(ev, dk)}
       menuOpen={menuFor === ev.id} onMenu={() => setMenuFor(menuFor === ev.id ? null : ev.id)}
-      base={date} />
+      base={isPast ? today : date} />
   );
 
   return (
@@ -355,7 +355,7 @@ function Row({ ev, isPast, onDelete, onEdit, onMove, menuOpen, onMenu, base }) {
         {!isPast && <button onClick={onMenu} style={{ border: "none", background: "transparent", color: C.soft, fontSize: 14, cursor: "pointer", padding: "2px 4px" }} aria-label="Перенести">⋯</button>}
         <button onClick={onDelete} style={{ border: "none", background: "transparent", color: C.line, fontSize: 17, cursor: "pointer", padding: "0 2px" }} aria-label="Удалить">×</button>
       </div>
-      {menuOpen && <Move base={base} onPick={onMove} onClose={onMenu} />}
+      {menuOpen && <Move base={base} past={isPast} onPick={onMove} onClose={onMenu} />}
     </div>
   );
 }
@@ -388,9 +388,10 @@ function Form({ mode, title0 = "", time0 = "", onSubmit, onCancel }) {
   );
 }
 
-function Move({ base, onPick, onClose }) {
+function Move({ base, past, onPick, onClose }) {
   const [custom, setCustom] = useState("");
-  const opts = [["Завтра",1],["+2 дня",2],["+3 дня",3],["Через неделю",7]];
+  // у прошедшего дела отсчёт идёт от сегодняшнего дня, у будущего — от дня самого дела
+  const opts = [[past ? "Завтра" : "+1 день",1],["+2 дня",2],["+3 дня",3],["Через неделю",7]];
   return (
     <div style={{ background: C.paper, border: `1px solid ${C.line}`, borderRadius: 10, padding: 10, marginBottom: 8, display: "flex", flexWrap: "wrap", gap: 6, alignItems: "center" }}>
       {opts.map(([l, n]) => <button key={l} onClick={() => onPick(key(addD(base, n)))} style={chip}>{l}</button>)}
