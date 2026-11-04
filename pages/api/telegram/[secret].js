@@ -12,6 +12,7 @@ const { handleCancelReminder, handleSetReminder } = require("../../../lib/handle
 const { handleDeleteEvent, handleRescheduleEvent } = require("../../../lib/handlers/eventsEdit");
 const { handleCreateEvent, handleListEvents } = require("../../../lib/handlers/events");
 const { handleChooseEvent } = require("../../../lib/handlers/choose");
+const { handleHelp } = require("../../../lib/handlers/help");
 const { claimUpdate } = require("../../../lib/dedupe");
 
 
@@ -78,6 +79,11 @@ async function handleUpdate(update) {
   }
 
   if (!text) return;
+
+  if (/^\/help(@\w+)?$/.test(text.trim())) {
+    await handleHelp(chatId);
+    return;
+  }
 
   if (text.trim() === "/start") {
     await sendMessage(
