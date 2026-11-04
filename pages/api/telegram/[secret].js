@@ -13,6 +13,7 @@ const { handleDeleteEvent, handleRescheduleEvent } = require("../../../lib/handl
 const { handleCreateEvent, handleListEvents } = require("../../../lib/handlers/events");
 const { handleChooseEvent } = require("../../../lib/handlers/choose");
 const { handleHelp } = require("../../../lib/handlers/help");
+const { handleCalendar } = require("../../../lib/handlers/calendar");
 const { claimUpdate } = require("../../../lib/dedupe");
 
 
@@ -85,6 +86,11 @@ async function handleUpdate(update) {
     return;
   }
 
+  if (/^\/calendar(@\w+)?$/.test(text.trim())) {
+    await handleCalendar(chatId);
+    return;
+  }
+
   if (text.trim() === "/start") {
     await sendMessage(
       chatId,
@@ -101,7 +107,7 @@ async function handleUpdate(update) {
         "📋 Ещё: «Что у меня сегодня», «Удали встречу с юристом», «Не напоминай про встречу».\n\n" +
         "🌦 Погода. Назови город и когда: «погода в Перми завтра вечером».\n\n" +
         "🌍 Часовой пояс. Чтобы напоминания приходили вовремя, напиши /timezone и свой город.\n\n" +
-        "🗓 Календарь. Кнопка «Календарь» внизу покажет все дела в удобном виде."
+        "🗓 Календарь. Команда /calendar покажет все дела в удобном виде."
     );
     await askCityIfNew(chatId);
     return;
