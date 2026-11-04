@@ -2,7 +2,7 @@ const { sendMessage } = require("../../../lib/telegram");
 const { transcribeVoice, parseMessage } = require("../../../lib/ai");
 const { loadContext, saveContext } = require("../../../lib/context");
 const { getTzOffset } = require("../../../lib/settings");
-const { stripContextWords, extractOffsetMinutes } = require("../../../lib/text");
+const { stripContextWords, extractOffsetMinutes, isAtEventMoment } = require("../../../lib/text");
 const { buildContextText } = require("../../../lib/contextText");
 const { handleWeather } = require("../../../lib/handlers/weather");
 const { handleCallbackQuery, handleTimezoneCityReply, handleTimezoneCommand, askCityIfNew } = require("../../../lib/handlers/timezone");
@@ -151,6 +151,17 @@ async function handleUpdate(update) {
   if (parsed.intent === "set_reminder" && !Number.isFinite(parsed.remind_offset_minutes)) {
     const off = extractOffsetMinutes(text);
     if (off) parsed.remind_offset_minutes = off;
+    else if (isAtEventMoment(text)) parsed.remind_offset_minutes = 0;
+  }
+
+  // «напомни завтра в 15:00 …» или «в момент события» без названного интервала — напоминание ровно в момент дела, а не за час
+  if (
+    (parsed.intent === "create_event" || parsed.intent === "create_recurring_event") &&
+    !Number.isFinite(parsed.remind_offset_minutes)
+  ) {
+    const off = extractOffsetMinutes(text);
+    if (off) parsed.remind_offset_minutes = off;
+    else if (/напомн/i.test(text) || isAtEventMoment(text)) parsed.remind_offset_minutes = 0;
   }
 
   // модель иногда подмешивает в название нового дела слова из памяти диалога — убираем их
