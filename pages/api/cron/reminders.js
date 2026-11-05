@@ -2,6 +2,7 @@ const { sendMessage } = require("../../../lib/telegram");
 const { formatDateHuman, utcIsoToLocalParts, nextNOccurrencesUtcIso } = require("../../../lib/time");
 const db = require("../../../lib/db");
 const { getTzOffset } = require("../../../lib/settings");
+const { loadContext, saveContext } = require("../../../lib/context");
 
 const RECURRING_BUFFER_SIZE = 8;
 const STALE_AFTER_MS = 2 * 60 * 60 * 1000; // напоминания о делах, прошедших больше 2 часов назад, не отправляем
@@ -73,7 +74,13 @@ export default async function handler(req, res) {
         `⏰ Напоминание: ${ev.emoji || "📌"} ${ev.title}\n` +
         `🗓 Событие: ${formatDateHuman(dateStr, timeStr)}`;
       try {
-        await sendMessage(ev.chat_id, text);
+        const sent = await sendMessage(ev.chat_id, text);
+        if (sent) {
+          // запоминаем дело: ответ на напоминание («перенеси на завтра», «удали») должен понимать, о чём речь;
+          // если человек как раз отвечает на вопрос бота (pending) — его не трогаем
+          const ctx = await loadContext(ev.chat_id);
+          if (!ctx.pending) await saveContext(ev.chat_id, { ...ctx, last_event_id: ev.id });
+        }
       } catch (e) {
         console.error("reminder send failed for", ev.id, e);
         // не отправилось — снимаем отметку, следующая минута повторит попытку

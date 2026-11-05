@@ -148,7 +148,10 @@ async function handleUpdate(update) {
   }
 
   // интервал напоминания, названный в самом сообщении, модель иногда теряет — берём из текста
-  if (parsed.intent === "set_reminder" && !Number.isFinite(parsed.remind_offset_minutes)) {
+  if (
+    (parsed.intent === "set_reminder" || parsed.intent === "reschedule_event") &&
+    !Number.isFinite(parsed.remind_offset_minutes)
+  ) {
     const off = extractOffsetMinutes(text);
     if (off) parsed.remind_offset_minutes = off;
     else if (isAtEventMoment(text)) parsed.remind_offset_minutes = 0;
