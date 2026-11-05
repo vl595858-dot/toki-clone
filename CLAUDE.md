@@ -16,7 +16,8 @@ Telegram-бот-органайзер @moideladelishki_bot и Mini App «Кале
 ## Структура файлов
 - pages/api/telegram/[secret].js — только роутер (~170 строк): handler (вебхук), handleUpdate (голос, /start, загрузка памяти, разбор фразы), dispatch (выбор обработчика по intent)
 - lib/handlers/weather.js — погода
-- lib/handlers/help.js — команда /help (короткая шпаргалка)
+- lib/handlers/help.js — команда /help (шпаргалка, жирный шрифт через HTML)
+- lib/handlers/start.js — команда /start (короткое приветствие со ссылкой на «Помощь»)
 - lib/handlers/calendar.js — команда /calendar (сообщение с кнопкой, открывающей Mini App)
 - lib/handlers/search.js — поиск дел по названию («когда встреча с Иваном?»)
 - lib/handlers/recurringEdit.js — кодовые слова для повторяющихся дел: «навсегда» (перенос всей серии), «переименуй» (новое название)
