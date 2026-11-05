@@ -19,6 +19,7 @@ Telegram-бот-органайзер @moideladelishki_bot и Mini App «Кале
 - lib/handlers/help.js — команда /help (короткая шпаргалка)
 - lib/handlers/calendar.js — команда /calendar (сообщение с кнопкой, открывающей Mini App)
 - lib/handlers/search.js — поиск дел по названию («когда встреча с Иваном?»)
+- lib/handlers/recurringEdit.js — кодовые слова для повторяющихся дел: «навсегда» (перенос всей серии), «переименуй» (новое название)
 - lib/handlers/reminderButtons.js — кнопки под напоминанием «✅ Сделано» и «📅 Перенос» (callback_data rem:done:<id> / rem:move:<id>)
 - lib/handlers/timezone.js — команда /timezone, ответ городом, вопрос о городе новым пользователям (после /start)
 - lib/handlers/events.js — создание одного дела, список предстоящих
@@ -52,6 +53,7 @@ Telegram-бот-органайзер @moideladelishki_bot и Mini App «Кале
 - Mini App: авторизация по initData (HMAC-SHA256), заголовок Authorization: tma <initData>.
 - Очистка: раз в неделю (воскресенье 22:00 UTC) cron удаляет дела старше 30 дней, выполненные и нет (pages/api/cron/reminders.js).
 - «Сделано» = events.done_at; у повторяющегося отмечается только этот экземпляр; сделанные дела не напоминаются, в списках показываются с ✅.
+- Кодовые слова решает код (lib/text.js: hasForeverWord, parseRename), а не модель: «навсегда»/«насовсем» + reschedule_event → reschedule_recurring_event; «переименуй» → rename_event.
 - Таблицы БД: events, recurring_events, chat_context, user_settings, processed_updates (см. schema.sql).
 
 ## Известные баги и что пробовали

@@ -2,7 +2,7 @@ const { sendMessage } = require("../../../lib/telegram");
 const { transcribeVoice, parseMessage } = require("../../../lib/ai");
 const { loadContext, saveContext } = require("../../../lib/context");
 const { getTzOffset } = require("../../../lib/settings");
-const { stripContextWords, extractOffsetMinutes, isAtEventMoment } = require("../../../lib/text");
+const { stripContextWords, extractOffsetMinutes, isAtEventMoment, hasForeverWord, stripForeverWord, parseRename } = require("../../../lib/text");
 const { buildContextText } = require("../../../lib/contextText");
 const { handleWeather } = require("../../../lib/handlers/weather");
 const { handleCallbackQuery, handleTimezoneCityReply, handleTimezoneCommand, askCityIfNew } = require("../../../lib/handlers/timezone");
@@ -16,6 +16,7 @@ const { handleHelp } = require("../../../lib/handlers/help");
 const { handleCalendar } = require("../../../lib/handlers/calendar");
 const { handleSearchEvents } = require("../../../lib/handlers/search");
 const { handleReminderButton } = require("../../../lib/handlers/reminderButtons");
+const { handleRescheduleRecurring, handleRenameEvent } = require("../../../lib/handlers/recurringEdit");
 const { claimUpdate } = require("../../../lib/dedupe");
 
 
@@ -105,7 +106,7 @@ async function handleUpdate(update) {
         "• во сколько или за сколько напомнить (без уточнения напомню за час).\n" +
         "Например: «Встреча с юристом завтра в 15:00, напомни за сутки»\n\n" +
         "🔁 Повторяющееся дело. Добавь «каждый день», «каждую неделю», «каждый месяц» или «каждый год» — и я буду ставить его сам. " +
-        "Например: «Каждый понедельник в 16:00 планёрка» или «У мамы день рождения 5 мая».\n\n" +
+        "Например: «Каждый понедельник в 16:00 планёрка» или «У мамы день рождения 5 мая». Чтобы перенести все повторы, добавь «навсегда»: «Перенеси планёрку на вторник навсегда» (без этого слова переносится одно дело). Новое название: «Переименуй планёрку в совещание».\n\n" +
         "🎤 Голосом тоже можно. После записи я пришлю сводку — проверь, всё ли верно. " +
         "Если нет, сразу скажи, что поправить: «нет, напомни за сутки», «перенеси на пятницу», «поставь на 18:00».\n\n" +
         "📋 Ещё: «Что у меня сегодня», «Удали встречу с юристом», «Не напоминай про встречу».\n\n" +
@@ -150,6 +151,16 @@ async function handleUpdate(update) {
     return;
   }
 
+  // кодовые слова решает код, а не модель:
+  // «переименуй X в Y» — новое название; «навсегда» вместе с «перенеси» — перенос всей серии повторов
+  const rename = parseRename(text);
+  if (rename) {
+    parsed = { ...parsed, ...rename, intent: "rename_event" };
+  } else if (hasForeverWord(text) && parsed.intent === "reschedule_event") {
+    parsed.intent = "reschedule_recurring_event";
+    parsed.title = stripForeverWord(parsed.title);
+  }
+
   // интервал напоминания, названный в самом сообщении, модель иногда теряет — берём из текста
   if (
     (parsed.intent === "set_reminder" || parsed.intent === "reschedule_event") &&
@@ -189,6 +200,14 @@ async function dispatch(chatId, parsed, ctx, patch, tz) {
   }
   if (parsed.intent === "list_events") {
     await handleListEvents(chatId, parsed.list_scope, tz);
+    return;
+  }
+  if (parsed.intent === "rename_event") {
+    await handleRenameEvent(chatId, parsed, ctx, patch, tz);
+    return;
+  }
+  if (parsed.intent === "reschedule_recurring_event") {
+    await handleRescheduleRecurring(chatId, parsed, ctx, patch, tz);
     return;
   }
   if (parsed.intent === "search_events") {
