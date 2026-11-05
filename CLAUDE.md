@@ -7,7 +7,7 @@ Telegram-бот-органайзер @moideladelishki_bot и Mini App «Кале
 
 ## Стек и версии
 - Next.js 14.2.5 (Pages Router), React 18.3.1, pg 8.12.0, JavaScript (не TypeScript)
-- Vercel Hobby (автодеплой из ветки main), БД Neon Postgres (проект telegram_bot_moidelishki)
+- Vercel Hobby (автодеплой из ветки main), БД Supabase Postgres (проект moidelishki, Transaction pooler)
 - OpenAI: Whisper (голос) и gpt-4o-mini (разбор фразы в JSON, temperature 0)
 - Open-Meteo: погода, геокодер, часовой пояс города (без ключа)
 - Напоминания: cron-job.org раз в минуту вызывает /api/cron/reminders с Bearer CRON_SECRET
