@@ -88,7 +88,18 @@ export default async function handler(req, res) {
       }
     }
 
-    res.status(200).json({ processed: rows.length - skipped, skipped, regenerated });
+    // раз в час удаляем дела старше 30 дней (и выполненные, и нет), чтобы база не разрасталась
+    let cleaned = 0;
+    if (new Date().getUTCMinutes() === 0) {
+      try {
+        const del = await db.query(`DELETE FROM events WHERE event_at < now() - interval '30 days'`);
+        cleaned = del.rowCount || 0;
+      } catch (e) {
+        console.error("cleanup error", e);
+      }
+    }
+
+    res.status(200).json({ processed: rows.length - skipped, skipped, regenerated, cleaned });
   } catch (e) {
     console.error("cron reminders error", e);
     res.status(500).json({ error: String(e) });

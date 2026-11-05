@@ -49,6 +49,7 @@ Telegram-бот-органайзер @moideladelishki_bot и Mini App «Кале
   Модели ЗАПРЕЩЕНО вычислять remind_offset_minutes разностью времён.
 - Вебхук сначала дожидается обработки и только потом отвечает 200 (maxDuration 10).
 - Mini App: авторизация по initData (HMAC-SHA256), заголовок Authorization: tma <initData>.
+- Очистка: раз в час (в нулевую минуту) cron удаляет дела старше 30 дней, выполненные и нет (pages/api/cron/reminders.js).
 - Таблицы БД: events, recurring_events, chat_context, user_settings, processed_updates (см. schema.sql).
 
 ## Известные баги и что пробовали
