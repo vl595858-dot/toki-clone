@@ -19,6 +19,7 @@ Telegram-бот-органайзер @moideladelishki_bot и Mini App «Кале
 - lib/handlers/help.js — команда /help (короткая шпаргалка)
 - lib/handlers/calendar.js — команда /calendar (сообщение с кнопкой, открывающей Mini App)
 - lib/handlers/search.js — поиск дел по названию («когда встреча с Иваном?»)
+- lib/handlers/reminderButtons.js — кнопки под напоминанием «✅ Сделано» и «📅 Перенос» (callback_data rem:done:<id> / rem:move:<id>)
 - lib/handlers/timezone.js — команда /timezone, ответ городом, вопрос о городе новым пользователям (после /start)
 - lib/handlers/events.js — создание одного дела, список предстоящих
 - lib/handlers/eventTarget.js — общий поиск дела по названию или «последнее из памяти» (resolveTarget, replyNotFound)
@@ -49,7 +50,8 @@ Telegram-бот-органайзер @moideladelishki_bot и Mini App «Кале
   Модели ЗАПРЕЩЕНО вычислять remind_offset_minutes разностью времён.
 - Вебхук сначала дожидается обработки и только потом отвечает 200 (maxDuration 10).
 - Mini App: авторизация по initData (HMAC-SHA256), заголовок Authorization: tma <initData>.
-- Очистка: раз в час (в нулевую минуту) cron удаляет дела старше 30 дней, выполненные и нет (pages/api/cron/reminders.js).
+- Очистка: раз в неделю (воскресенье 22:00 UTC) cron удаляет дела старше 30 дней, выполненные и нет (pages/api/cron/reminders.js).
+- «Сделано» = events.done_at; у повторяющегося отмечается только этот экземпляр; сделанные дела не напоминаются, в списках показываются с ✅.
 - Таблицы БД: events, recurring_events, chat_context, user_settings, processed_updates (см. schema.sql).
 
 ## Известные баги и что пробовали

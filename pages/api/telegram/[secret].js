@@ -15,6 +15,7 @@ const { handleChooseEvent } = require("../../../lib/handlers/choose");
 const { handleHelp } = require("../../../lib/handlers/help");
 const { handleCalendar } = require("../../../lib/handlers/calendar");
 const { handleSearchEvents } = require("../../../lib/handlers/search");
+const { handleReminderButton } = require("../../../lib/handlers/reminderButtons");
 const { claimUpdate } = require("../../../lib/dedupe");
 
 
@@ -40,7 +41,9 @@ export default async function handler(req, res) {
 
   try {
     if (req.body.callback_query) {
-      await handleCallbackQuery(req.body.callback_query);
+      const cq = req.body.callback_query;
+      if (String(cq.data || "").startsWith("rem:")) await handleReminderButton(cq);
+      else await handleCallbackQuery(cq);
     } else {
       await handleUpdate(req.body);
     }

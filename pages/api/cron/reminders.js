@@ -3,6 +3,7 @@ const { formatDateHuman, utcIsoToLocalParts, nextNOccurrencesUtcIso } = require(
 const db = require("../../../lib/db");
 const { getTzOffset } = require("../../../lib/settings");
 const { loadContext, saveContext } = require("../../../lib/context");
+const { reminderKeyboard } = require("../../../lib/handlers/reminderButtons");
 
 const RECURRING_BUFFER_SIZE = 8;
 const STALE_AFTER_MS = 2 * 60 * 60 * 1000; // напоминания о делах, прошедших больше 2 часов назад, не отправляем
@@ -53,7 +54,7 @@ export default async function handler(req, res) {
       `UPDATE events SET reminded = TRUE
        WHERE id IN (
          SELECT id FROM events
-         WHERE reminded = FALSE AND remind_at <= now()
+         WHERE reminded = FALSE AND done_at IS NULL AND remind_at <= now()
          ORDER BY remind_at LIMIT 50
          FOR UPDATE SKIP LOCKED
        )
@@ -74,7 +75,7 @@ export default async function handler(req, res) {
         `⏰ Напоминание: ${ev.emoji || "📌"} ${ev.title}\n` +
         `🗓 Событие: ${formatDateHuman(dateStr, timeStr)}`;
       try {
-        const sent = await sendMessage(ev.chat_id, text);
+        const sent = await sendMessage(ev.chat_id, text, { replyMarkup: reminderKeyboard(ev.id) });
         if (sent) {
           // запоминаем дело: ответ на напоминание («перенеси на завтра», «удали») должен понимать, о чём речь;
           // если человек как раз отвечает на вопрос бота (pending) — его не трогаем
@@ -88,9 +89,11 @@ export default async function handler(req, res) {
       }
     }
 
-    // раз в час удаляем дела старше 30 дней (и выполненные, и нет), чтобы база не разрасталась
+    // раз в неделю (воскресенье 22:00 UTC = понедельник 03:00 по Перми) удаляем дела старше 30 дней,
+    // и выполненные, и нет, чтобы база не разрасталась; окно в 5 минут на случай пропущенного запуска
     let cleaned = 0;
-    if (new Date().getUTCMinutes() === 0) {
+    const now = new Date();
+    if (now.getUTCDay() === 0 && now.getUTCHours() === 22 && now.getUTCMinutes() < 5) {
       try {
         const del = await db.query(`DELETE FROM events WHERE event_at < now() - interval '30 days'`);
         cleaned = del.rowCount || 0;

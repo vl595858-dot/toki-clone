@@ -24,8 +24,11 @@ CREATE TABLE IF NOT EXISTS events (
   remind_at TIMESTAMPTZ,
   reminded BOOLEAN NOT NULL DEFAULT FALSE,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-  recurring_id INT REFERENCES recurring_events(id) ON DELETE SET NULL
+  recurring_id INT REFERENCES recurring_events(id) ON DELETE SET NULL,
+  done_at TIMESTAMPTZ                       -- отметка «Сделано» (кнопка под напоминанием)
 );
+
+-- для уже существующей базы: ALTER TABLE events ADD COLUMN IF NOT EXISTS done_at TIMESTAMPTZ;
 
 CREATE INDEX IF NOT EXISTS idx_events_remind
   ON events (remind_at)
