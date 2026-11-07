@@ -34,6 +34,7 @@ Telegram-бот-органайзер @moideladelishki_bot и Mini App «Кале
 - lib/ai.js — Whisper и разбор фразы моделью (промпт с правилами intents)
 - lib/time.js — все операции с датами, часовыми поясами и повторами
 - lib/weather.js — погода и часовой пояс города
+- lib/dayBefore.js — второе напоминание накануне в 12:00 для дней рождения
 - lib/dedupe.js — защита от повторов вебхука Telegram (таблица processed_updates, создаётся сама)
 - lib/context.js — память диалога; lib/settings.js — часовой пояс чата
 - lib/telegram.js — отправка сообщений и файлов; lib/telegramAuth.js — проверка initData; lib/db.js — подключение к БД
@@ -56,6 +57,7 @@ Telegram-бот-органайзер @moideladelishki_bot и Mini App «Кале
 - «Сделано» = events.done_at; у повторяющегося отмечается только этот экземпляр; сделанные дела не напоминаются, в списках показываются с ✅.
 - Кодовые слова решает код (lib/text.js: hasForeverWord, parseRename), а не модель: «навсегда»/«насовсем» + reschedule_event → reschedule_recurring_event; «переименуй» → rename_event.
 - Дни рождения: lib/text.js isBirthday + create_recurring_event → напоминание по умолчанию за 7 суток (10080 мин), время по умолчанию 10:00; явный интервал в тексте главнее.
+  Второе напоминание «накануне в 12:00» (lib/dayBefore.js, вызывается из cron): recurring_events.day_before + events.reminded2.
 - Таблицы БД: events, recurring_events, chat_context, user_settings, processed_updates (см. schema.sql).
 
 ## Известные баги и что пробовали

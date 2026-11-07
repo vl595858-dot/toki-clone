@@ -4,6 +4,7 @@ const db = require("../../../lib/db");
 const { getTzOffset } = require("../../../lib/settings");
 const { loadContext, saveContext } = require("../../../lib/context");
 const { reminderKeyboard } = require("../../../lib/handlers/reminderButtons");
+const { sendDayBeforeReminders } = require("../../../lib/dayBefore");
 
 const RECURRING_BUFFER_SIZE = 8;
 const STALE_AFTER_MS = 2 * 60 * 60 * 1000; // напоминания о делах, прошедших больше 2 часов назад, не отправляем
@@ -48,6 +49,9 @@ export default async function handler(req, res) {
         regenerated += 1;
       }
     }
+
+    // второе напоминание «накануне в 12:00» (дни рождения)
+    const dayBefore = await sendDayBeforeReminders(tzFor);
 
     // «занимаем» пачку напоминаний одним запросом: так два одновременных запуска не отправят одно и то же дважды
     const { rows: claimed } = await db.query(
@@ -102,7 +106,7 @@ export default async function handler(req, res) {
       }
     }
 
-    res.status(200).json({ processed: rows.length - skipped, skipped, regenerated, cleaned });
+    res.status(200).json({ processed: rows.length - skipped, skipped, regenerated, dayBefore, cleaned });
   } catch (e) {
     console.error("cron reminders error", e);
     res.status(500).json({ error: String(e) });

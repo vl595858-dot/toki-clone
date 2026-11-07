@@ -12,6 +12,7 @@ CREATE TABLE IF NOT EXISTS recurring_events (
   frequency TEXT NOT NULL DEFAULT 'weekly', -- daily | weekly | monthly | yearly
   month_day INT,
   month INT,
+  day_before BOOLEAN NOT NULL DEFAULT FALSE, -- второе напоминание накануне в 12:00 (дни рождения)
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
@@ -25,10 +26,14 @@ CREATE TABLE IF NOT EXISTS events (
   reminded BOOLEAN NOT NULL DEFAULT FALSE,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   recurring_id INT REFERENCES recurring_events(id) ON DELETE SET NULL,
-  done_at TIMESTAMPTZ                       -- отметка «Сделано» (кнопка под напоминанием)
+  done_at TIMESTAMPTZ,                      -- отметка «Сделано» (кнопка под напоминанием)
+  reminded2 BOOLEAN NOT NULL DEFAULT FALSE  -- второе напоминание «накануне в 12:00» уже отправлено
 );
 
--- для уже существующей базы: ALTER TABLE events ADD COLUMN IF NOT EXISTS done_at TIMESTAMPTZ;
+-- для уже существующей базы:
+--   ALTER TABLE events ADD COLUMN IF NOT EXISTS done_at TIMESTAMPTZ;
+--   ALTER TABLE events ADD COLUMN IF NOT EXISTS reminded2 BOOLEAN NOT NULL DEFAULT FALSE;
+--   ALTER TABLE recurring_events ADD COLUMN IF NOT EXISTS day_before BOOLEAN NOT NULL DEFAULT FALSE;
 
 CREATE INDEX IF NOT EXISTS idx_events_remind
   ON events (remind_at)
