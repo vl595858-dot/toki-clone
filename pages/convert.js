@@ -167,7 +167,7 @@ export default function ConvertPage() {
       </div>
 
       {picking && (
-        <div onClick={() => setPicking(null)} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.35)", display: "flex", alignItems: "flex-end" }}>
+        <div onClick={() => setPicking(null)} style={{ position: "fixed", inset: 0, zIndex: 10, background: "rgba(0,0,0,0.35)", display: "flex", alignItems: "flex-end" }}>
           <div onClick={(e) => e.stopPropagation()} style={{ background: C.card, width: "100%", maxHeight: "75vh", overflowY: "auto", borderRadius: "18px 18px 0 0", padding: "8px 0 16px" }}>
             {(available.length ? available : CURRENCIES).map((c) => (
               <button
