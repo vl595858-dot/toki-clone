@@ -97,7 +97,7 @@ async function handleUpdate(update) {
     return;
   }
 
-  if (text.trim() === "/start") {
+  if (/^\/start(@\w+)?$/.test(text.trim())) {
     await handleStart(chatId);
     await askCityIfNew(chatId);
     return;
@@ -111,7 +111,7 @@ async function handleUpdate(update) {
     if (await handleTimezoneCityReply(chatId, text, ctx, patch)) return;
     ctx = { ...ctx, pending: null }; // это не город — разбираем как обычную команду
   }
-  if (text.trim() === "/timezone") {
+  if (/^\/timezone(@\w+)?$/.test(text.trim())) {
     await handleTimezoneCommand(chatId, ctx, patch);
     return;
   }
