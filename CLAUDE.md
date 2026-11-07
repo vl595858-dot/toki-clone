@@ -36,6 +36,11 @@ Telegram-бот-органайзер @moideladelishki_bot и Mini App «Кале
 - lib/ai.js — Whisper и разбор фразы моделью (промпт с правилами intents)
 - lib/time.js — все операции с датами, часовыми поясами и повторами
 - lib/weather.js — погода и часовой пояс города
+- lib/handlers/docs.js — документы по картинке: фото → сводка «Верно?» → «За сколько напомнить?» → запись; шаги pending doc (pick/confirm/missing/fix/remind)
+- lib/handlers/docButtons.js — кнопки doc:ok|fix|no|pick:<n|all>|r:<минуты>
+- lib/handlers/snooze.js — «Напомнить позже» у дел по документам (rem:later:<id>, pending snooze; двигается только напоминание)
+- lib/docs.js — типы документов (самолёт/поезд/мероприятие/запись/срок/счёт/посылка/жильё), пресеты интервалов, сводка
+- lib/vision.js — распознавание картинки моделью gpt-4o-mini (vision), только картинки, PDF отклоняются
 - lib/dayBefore.js — второе напоминание накануне в 12:00 для дней рождения
 - lib/dedupe.js — защита от повторов вебхука Telegram (таблица processed_updates, создаётся сама)
 - lib/context.js — память диалога; lib/settings.js — часовой пояс чата
@@ -60,6 +65,7 @@ Telegram-бот-органайзер @moideladelishki_bot и Mini App «Кале
 - Кодовые слова решает код (lib/text.js: hasForeverWord, parseRename), а не модель: «навсегда»/«насовсем» + reschedule_event → reschedule_recurring_event; «переименуй» → rename_event.
 - Дни рождения: lib/text.js isBirthday + create_recurring_event → напоминание по умолчанию за 7 суток (10080 мин), время по умолчанию 10:00; явный интервал в тексте главнее.
   Второе напоминание «накануне в 12:00» (lib/dayBefore.js, вызывается из cron): recurring_events.day_before + events.reminded2.
+- Документы по картинке: events.is_doc = TRUE; картинка не сохраняется, хранятся только найденные данные; для поездок/мероприятий/жилья время берётся по поясу города события (getTimezoneOffsetForCity).
 - Таблицы БД: events, recurring_events, chat_context, user_settings, processed_updates (см. schema.sql).
 
 ## Известные баги и что пробовали

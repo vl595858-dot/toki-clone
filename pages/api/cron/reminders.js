@@ -90,7 +90,7 @@ export default async function handler(req, res) {
         const sent = await sendMessage(
           ev.chat_id,
           text,
-          noButtons.has(ev.recurring_id) ? {} : { replyMarkup: reminderKeyboard(ev.id) }
+          noButtons.has(ev.recurring_id) ? {} : { replyMarkup: reminderKeyboard(ev.id, ev.is_doc === true) }
         );
         if (sent) {
           // запоминаем дело: ответ на напоминание («перенеси на завтра», «удали») должен понимать, о чём речь;

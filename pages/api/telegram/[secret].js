@@ -15,6 +15,9 @@ const { handleChooseEvent } = require("../../../lib/handlers/choose");
 const { handleHelp } = require("../../../lib/handlers/help");
 const { handleStart } = require("../../../lib/handlers/start");
 const { handleConvert } = require("../../../lib/handlers/convert");
+const { handlePhoto, handleDocText } = require("../../../lib/handlers/docs");
+const { handleDocButton } = require("../../../lib/handlers/docButtons");
+const { handleSnoozeReply } = require("../../../lib/handlers/snooze");
 const { handleCalendar } = require("../../../lib/handlers/calendar");
 const { handleSearchEvents } = require("../../../lib/handlers/search");
 const { handleReminderButton } = require("../../../lib/handlers/reminderButtons");
@@ -25,7 +28,7 @@ const { claimUpdate } = require("../../../lib/dedupe");
 export const config = {
   api: { bodyParser: true },
 };
-export const maxDuration = 10; // потолок бесплатного тарифа Vercel
+export const maxDuration = 30; // чтение картинки моделью занимает до ~10–15 секунд
 
 export default async function handler(req, res) {
   if (req.method !== "POST") {
@@ -46,6 +49,7 @@ export default async function handler(req, res) {
     if (req.body.callback_query) {
       const cq = req.body.callback_query;
       if (String(cq.data || "").startsWith("rem:")) await handleReminderButton(cq);
+      else if (String(cq.data || "").startsWith("doc:")) await handleDocButton(cq);
       else await handleCallbackQuery(cq);
     } else {
       await handleUpdate(req.body);
@@ -69,6 +73,12 @@ async function handleUpdate(update) {
   const message = update.message;
   if (!message) return;
   const chatId = message.chat.id;
+
+  // картинка (скриншот билета, талона, счёта): разбор документа; PDF и другие файлы не принимаем
+  if (message.photo || message.document) {
+    await handlePhoto(message, await getTzOffset(chatId));
+    return;
+  }
 
   let text = message.text;
 
@@ -120,6 +130,17 @@ async function handleUpdate(update) {
   if (/^\/timezone(@\w+)?$/.test(text.trim())) {
     await handleTimezoneCommand(chatId, ctx, patch);
     return;
+  }
+
+  // диалог по картинке: недостающие данные, правка, свой интервал напоминания
+  if (ctx.pending && ctx.pending.type === "doc") {
+    if (await handleDocText(chatId, text, ctx, await getTzOffset(chatId))) return;
+    ctx = { ...ctx, pending: null }; // это не ответ на вопрос — разбираем как обычную команду
+  }
+  // «Напомнить позже» под напоминанием: ждём, когда напомнить
+  if (ctx.pending && ctx.pending.type === "snooze") {
+    if (await handleSnoozeReply(chatId, text, ctx, await getTzOffset(chatId))) return;
+    ctx = { ...ctx, pending: null };
   }
 
   // бот спросил «какое из нескольких дел?» — ждём номер

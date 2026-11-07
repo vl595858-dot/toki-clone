@@ -27,12 +27,14 @@ CREATE TABLE IF NOT EXISTS events (
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   recurring_id INT REFERENCES recurring_events(id) ON DELETE SET NULL,
   done_at TIMESTAMPTZ,                      -- отметка «Сделано» (кнопка под напоминанием)
-  reminded2 BOOLEAN NOT NULL DEFAULT FALSE  -- второе напоминание «накануне в 12:00» уже отправлено
+  reminded2 BOOLEAN NOT NULL DEFAULT FALSE, -- второе напоминание «накануне в 12:00» уже отправлено
+  is_doc BOOLEAN NOT NULL DEFAULT FALSE     -- дело создано по картинке документа (кнопка «Напомнить позже»)
 );
 
 -- для уже существующей базы:
 --   ALTER TABLE events ADD COLUMN IF NOT EXISTS done_at TIMESTAMPTZ;
 --   ALTER TABLE events ADD COLUMN IF NOT EXISTS reminded2 BOOLEAN NOT NULL DEFAULT FALSE;
+--   ALTER TABLE events ADD COLUMN IF NOT EXISTS is_doc BOOLEAN NOT NULL DEFAULT FALSE;
 --   ALTER TABLE recurring_events ADD COLUMN IF NOT EXISTS day_before BOOLEAN NOT NULL DEFAULT FALSE;
 
 CREATE INDEX IF NOT EXISTS idx_events_remind
