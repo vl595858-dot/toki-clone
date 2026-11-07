@@ -66,6 +66,14 @@ export default async function handler(req, res) {
     );
     const rows = claimed.sort((x, y) => new Date(x.remind_at) - new Date(y.remind_at));
 
+    // у дней рождения (серии с двумя напоминаниями) кнопок «Сделано» и «Перенос» нет — только текст
+    const recIds = Array.from(new Set(rows.map((r) => r.recurring_id).filter(Boolean)));
+    const noButtons = new Set();
+    if (recIds.length) {
+      const { rows: bd } = await db.query(`SELECT id FROM recurring_events WHERE day_before = TRUE AND id = ANY($1)`, [recIds]);
+      bd.forEach((r) => noButtons.add(r.id));
+    }
+
     let skipped = 0;
     for (const ev of rows) {
       // событие давно прошло (например, был простой) — не шлём устаревшее, оно уже помечено отправленным
@@ -79,7 +87,11 @@ export default async function handler(req, res) {
         `⏰ Напоминание: ${ev.emoji || "📌"} ${ev.title}\n` +
         `🗓 Событие: ${formatDateHuman(dateStr, timeStr)}`;
       try {
-        const sent = await sendMessage(ev.chat_id, text, { replyMarkup: reminderKeyboard(ev.id) });
+        const sent = await sendMessage(
+          ev.chat_id,
+          text,
+          noButtons.has(ev.recurring_id) ? {} : { replyMarkup: reminderKeyboard(ev.id) }
+        );
         if (sent) {
           // запоминаем дело: ответ на напоминание («перенеси на завтра», «удали») должен понимать, о чём речь;
           // если человек как раз отвечает на вопрос бота (pending) — его не трогаем
