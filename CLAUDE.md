@@ -18,6 +18,8 @@ Telegram-бот-органайзер @moideladelishki_bot и Mini App «Кале
 - lib/handlers/weather.js — погода
 - lib/handlers/help.js — команда /help (шпаргалка, жирный шрифт через HTML)
 - lib/handlers/start.js — команда /start (короткое приветствие со ссылкой на «Помощь»)
+- lib/handlers/convert.js — команда /convert (кнопка, открывающая Mini App «Конвертация», pages/convert.js)
+- lib/rates.js — курсы: ЦБ РФ (фиат) + CoinGecko/Binance (биткоин), кэш 10 минут; pages/api/rates.js — публичный API курсов
 - lib/handlers/calendar.js — команда /calendar (сообщение с кнопкой, открывающей Mini App)
 - lib/handlers/search.js — поиск дел по названию («когда встреча с Иваном?»)
 - lib/handlers/recurringEdit.js — кодовые слова для повторяющихся дел: «навсегда» (перенос всей серии), «переименуй» (новое название)

@@ -14,6 +14,7 @@ const { handleCreateEvent, handleListEvents } = require("../../../lib/handlers/e
 const { handleChooseEvent } = require("../../../lib/handlers/choose");
 const { handleHelp } = require("../../../lib/handlers/help");
 const { handleStart } = require("../../../lib/handlers/start");
+const { handleConvert } = require("../../../lib/handlers/convert");
 const { handleCalendar } = require("../../../lib/handlers/calendar");
 const { handleSearchEvents } = require("../../../lib/handlers/search");
 const { handleReminderButton } = require("../../../lib/handlers/reminderButtons");
@@ -94,6 +95,11 @@ async function handleUpdate(update) {
 
   if (/^\/calendar(@\w+)?$/.test(text.trim())) {
     await handleCalendar(chatId);
+    return;
+  }
+
+  if (/^\/convert(@\w+)?$/.test(text.trim())) {
+    await handleConvert(chatId);
     return;
   }
 
