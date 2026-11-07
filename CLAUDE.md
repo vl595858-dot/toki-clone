@@ -55,6 +55,7 @@ Telegram-бот-органайзер @moideladelishki_bot и Mini App «Кале
 - Очистка: раз в неделю (воскресенье 22:00 UTC) cron удаляет дела старше 30 дней, выполненные и нет (pages/api/cron/reminders.js).
 - «Сделано» = events.done_at; у повторяющегося отмечается только этот экземпляр; сделанные дела не напоминаются, в списках показываются с ✅.
 - Кодовые слова решает код (lib/text.js: hasForeverWord, parseRename), а не модель: «навсегда»/«насовсем» + reschedule_event → reschedule_recurring_event; «переименуй» → rename_event.
+- Дни рождения: lib/text.js isBirthday + create_recurring_event → напоминание по умолчанию за 7 суток (10080 мин), время по умолчанию 10:00; явный интервал в тексте главнее.
 - Таблицы БД: events, recurring_events, chat_context, user_settings, processed_updates (см. schema.sql).
 
 ## Известные баги и что пробовали

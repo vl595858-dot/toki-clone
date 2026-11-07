@@ -2,7 +2,7 @@ const { sendMessage } = require("../../../lib/telegram");
 const { transcribeVoice, parseMessage } = require("../../../lib/ai");
 const { loadContext, saveContext } = require("../../../lib/context");
 const { getTzOffset } = require("../../../lib/settings");
-const { stripContextWords, extractOffsetMinutes, isAtEventMoment, hasForeverWord, stripForeverWord, parseRename } = require("../../../lib/text");
+const { stripContextWords, extractOffsetMinutes, isAtEventMoment, hasForeverWord, stripForeverWord, parseRename, isBirthday } = require("../../../lib/text");
 const { buildContextText } = require("../../../lib/contextText");
 const { handleWeather } = require("../../../lib/handlers/weather");
 const { handleCallbackQuery, handleTimezoneCityReply, handleTimezoneCommand, askCityIfNew } = require("../../../lib/handlers/timezone");
@@ -164,6 +164,12 @@ async function handleUpdate(update) {
     if (off) parsed.remind_offset_minutes = off;
     else if (/напомн/i.test(text) || isAtEventMoment(text)) parsed.remind_offset_minutes = 0;
     else parsed.remind_offset_minutes = null;
+
+    // день рождения: если интервал не назван — напоминаем за неделю (7 суток), время по умолчанию 10:00
+    if (parsed.intent === "create_recurring_event" && isBirthday(text)) {
+      parsed.is_birthday = true;
+      if (parsed.remind_offset_minutes === null) parsed.remind_offset_minutes = 10080;
+    }
   }
 
   // модель иногда подмешивает в название нового дела слова из памяти диалога — убираем их
