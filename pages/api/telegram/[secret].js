@@ -2,7 +2,7 @@ const { sendMessage } = require("../../../lib/telegram");
 const { transcribeVoice, parseMessage } = require("../../../lib/ai");
 const { loadContext, saveContext } = require("../../../lib/context");
 const { getTzOffset } = require("../../../lib/settings");
-const { stripContextWords, extractOffsetMinutes, isAtEventMoment, hasForeverWord, stripForeverWord, parseRename, isBirthday } = require("../../../lib/text");
+const { stripContextWords, extractOffsetMinutes, isAtEventMoment, hasForeverWord, stripForeverWord, parseRename, isBirthday, extractExplicitEventTime } = require("../../../lib/text");
 const { buildContextText } = require("../../../lib/contextText");
 const { handleWeather } = require("../../../lib/handlers/weather");
 const { handleCallbackQuery, handleTimezoneCityReply, handleTimezoneCommand, askCityIfNew } = require("../../../lib/handlers/timezone");
@@ -202,6 +202,14 @@ async function handleUpdate(update) {
   // модель иногда подмешивает в название нового дела слова из памяти диалога — убираем их
   if ((parsed.intent === "create_event" || parsed.intent === "create_recurring_event") && parsed.title) {
     parsed.title = stripContextWords(parsed.title, text, contextText);
+  }
+
+  if (parsed.intent === "create_event" || parsed.intent === "create_recurring_event") {
+    const explicitTime = extractExplicitEventTime(text);
+    if (explicitTime) {
+      parsed.event_time = explicitTime;
+      parsed.event_relative_minutes = null;
+    }
   }
 
   try {
