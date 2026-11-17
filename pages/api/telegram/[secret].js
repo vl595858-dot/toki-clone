@@ -22,6 +22,7 @@ const { handleCalendar } = require("../../../lib/handlers/calendar");
 const { handleSearchEvents } = require("../../../lib/handlers/search");
 const { handleReminderButton } = require("../../../lib/handlers/reminderButtons");
 const { handleRescheduleRecurring, handleRenameEvent } = require("../../../lib/handlers/recurringEdit");
+const { prepareTarget, isNewCommand } = require("../../../lib/targetQuery");
 const { commandOffset, OFF } = require("../../../lib/reminderSettings");
 const { claimUpdate } = require("../../../lib/dedupe");
 
@@ -147,7 +148,8 @@ async function handleUpdate(update) {
   // бот спросил «какое из нескольких дел?» — ждём номер
   if (ctx.pending && ctx.pending.type === "choose_event") {
     if (await handleChooseEvent(chatId, text, ctx, patch, await getTzOffset(chatId))) return;
-    ctx = { ...ctx, pending: null }; // это не ответ на вопрос — разбираем как обычную команду
+    ctx = { ...ctx, pending: null }; // новая команда отменяет прежнее ожидающее действие
+    await saveContext(chatId, ctx);
   }
 
   // часовой пояс этого конкретного чата — свой на каждого человека
@@ -174,12 +176,19 @@ async function handleUpdate(update) {
     parsed.title = stripForeverWord(parsed.title);
   }
 
+  prepareTarget(parsed, text, tz);
+  if (parsed.intent === "reschedule_event" && parsed.refers_to_last &&
+      ctx.pending?.type === "reschedule_time" && !isNewCommand(text)) {
+    parsed.intent = ctx.pending.intent || "reschedule_event";
+    parsed._selection = ctx.pending.selection;
+  }
+
   // Состояние напоминания берём только из текущей команды, не из памяти модели.
   if (["create_event", "create_recurring_event", "reschedule_event", "reschedule_recurring_event", "set_reminder"].includes(parsed.intent)) {
     const offset = commandOffset(text);
     parsed.reminder_disabled = offset === OFF;
     parsed.remind_offset_minutes = offset !== undefined && offset !== OFF ? offset : null;
-    if (offset === undefined && parsed.intent === "reschedule_event" && ctx.pending?.type === "reschedule_time") {
+    if (offset === undefined && /^reschedule_/.test(parsed.intent) && ctx.pending?.type === "reschedule_time" && parsed.refers_to_last && !isNewCommand(text)) {
       parsed.reminder_disabled = ctx.pending.reminder_disabled === true;
       parsed.remind_offset_minutes = ctx.pending.remind_offset_minutes ?? null;
     }
@@ -252,7 +261,7 @@ async function dispatch(chatId, parsed, ctx, patch, tz, text) {
     return;
   }
   if (parsed.intent === "delete_recurring_event") {
-    await handleDeleteRecurringEvent(chatId, parsed.title);
+    await handleDeleteRecurringEvent(chatId, parsed, ctx, patch, tz);
     return;
   }
   if (parsed.intent === "create_event" && parsed.title) {
