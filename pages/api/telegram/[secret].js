@@ -23,7 +23,7 @@ const { handleSearchEvents } = require("../../../lib/handlers/search");
 const { handleReminderButton } = require("../../../lib/handlers/reminderButtons");
 const { handleRescheduleRecurring, handleRenameEvent } = require("../../../lib/handlers/recurringEdit");
 const { prepareTarget, isNewCommand } = require("../../../lib/targetQuery");
-const { commandOffset, OFF } = require("../../../lib/reminderSettings");
+const { commandOffset, OFF, AMBIGUOUS, INTERVAL_QUESTION, isIntervalOnly } = require("../../../lib/reminderSettings");
 const { claimUpdate } = require("../../../lib/dedupe");
 
 
@@ -155,6 +155,36 @@ async function handleUpdate(update) {
   // часовой пояс этого конкретного чата — свой на каждого человека
   const tz = await getTzOffset(chatId);
 
+  // Ответ на уточнение выполняет сохранённое действие, а не новую догадку модели.
+  if (["reminder_interval", "reminder_offset"].includes(ctx.pending?.type)) {
+    const pending = ctx.pending;
+    if (/^(?:отмена|отмени|стоп)[.!?]*$/iu.test(text.trim())) {
+      await sendMessage(chatId, "Хорошо, ничего не меняю.");
+      await saveContext(chatId, { ...ctx, pending: null });
+      return;
+    }
+    if (isNewCommand(text) && !isIntervalOnly(text)) {
+      ctx = { ...ctx, pending: null };
+      await saveContext(chatId, ctx);
+    } else {
+      const offset = commandOffset(text, { allowBare: true });
+      if (offset === undefined || offset === AMBIGUOUS) {
+        await sendMessage(chatId, INTERVAL_QUESTION);
+        return;
+      }
+      const saved = pending.parsed || { intent: "set_reminder", refers_to_last: true,
+        _selection: pending.selection || (ctx.last_event_id ? { kind: "event", id: ctx.last_event_id } : undefined) };
+      const parsed = { ...saved, reminder_ambiguous: false, reminder_disabled: offset === OFF,
+        remind_offset_minutes: offset === OFF ? null : offset };
+      try {
+        await dispatch(chatId, parsed, ctx, patch, tz, pending.text || text);
+      } finally {
+        await saveContext(chatId, { ...ctx, ...patch });
+      }
+      return;
+    }
+  }
+
   let parsed;
   let contextText = "";
   try {
@@ -186,8 +216,9 @@ async function handleUpdate(update) {
   // Состояние напоминания берём только из текущей команды, не из памяти модели.
   if (["create_event", "create_recurring_event", "reschedule_event", "reschedule_recurring_event", "set_reminder"].includes(parsed.intent)) {
     const offset = commandOffset(text);
+    parsed.reminder_ambiguous = offset === AMBIGUOUS;
     parsed.reminder_disabled = offset === OFF;
-    parsed.remind_offset_minutes = offset !== undefined && offset !== OFF ? offset : null;
+    parsed.remind_offset_minutes = Number.isFinite(offset) && offset !== OFF ? offset : null;
     if (offset === undefined && /^reschedule_/.test(parsed.intent) && ctx.pending?.type === "reschedule_time" && parsed.refers_to_last && !isNewCommand(text)) {
       parsed.reminder_disabled = ctx.pending.reminder_disabled === true;
       parsed.remind_offset_minutes = ctx.pending.remind_offset_minutes ?? null;
@@ -220,6 +251,11 @@ async function handleUpdate(update) {
 }
 
 async function dispatch(chatId, parsed, ctx, patch, tz, text) {
+  if (parsed.reminder_ambiguous) {
+    await sendMessage(chatId, INTERVAL_QUESTION);
+    patch.pending = { type: "reminder_interval", parsed: { ...parsed }, text };
+    return;
+  }
   if (parsed.intent === "weather") {
     await handleWeather(chatId, parsed, ctx, patch, text);
     return;
