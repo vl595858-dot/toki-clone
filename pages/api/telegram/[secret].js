@@ -213,15 +213,15 @@ async function handleUpdate(update) {
   }
 
   try {
-    await dispatch(chatId, parsed, ctx, patch, tz);
+    await dispatch(chatId, parsed, ctx, patch, tz, text);
   } finally {
     await saveContext(chatId, { ...ctx, ...patch });
   }
 }
 
-async function dispatch(chatId, parsed, ctx, patch, tz) {
+async function dispatch(chatId, parsed, ctx, patch, tz, text) {
   if (parsed.intent === "weather") {
-    await handleWeather(chatId, parsed, ctx, patch);
+    await handleWeather(chatId, parsed, ctx, patch, text);
     return;
   }
   if (parsed.intent === "list_events") {
