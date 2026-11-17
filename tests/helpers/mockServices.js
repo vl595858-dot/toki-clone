@@ -106,9 +106,10 @@ function fixture(options = {}) {
   };
   state.api = async (method, body, id, query = {}) => {
     let status, response;
-    const res = {status(code) {status = code; return this;}, json(value) {response = value;}, end() {}};
+    const headers = {};
+    const res = {setHeader(name, value) {headers[name] = value;}, status(code) {status = code; return this;}, json(value) {response = value;}, end() {}};
     await load(`pages/api/webapp/events/${id ? '[id]' : 'index'}.js`)({method, body, query: {id, from: '2099-01-01', to: '2100-01-01', ...query}}, res);
-    return {status, response};
+    return {status, response, headers};
   };
   state.seed = offset => {
     const event = {id: nextId++, chat_id: 1, title: 'Встреча', event_at: '2099-05-05T12:00:00.000Z',

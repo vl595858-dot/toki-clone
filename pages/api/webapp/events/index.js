@@ -10,6 +10,7 @@ export default async function handler(req, res) {
   if (!chatId) return;
 
   if (req.method === "GET") {
+    res.setHeader("Cache-Control", "no-store");
     const { from, to } = req.query;
     const fromIso = from || new Date(Date.now() - 3 * 86400000).toISOString();
     const toIso = to || new Date(Date.now() + 90 * 86400000).toISOString();
@@ -21,7 +22,7 @@ export default async function handler(req, res) {
     }
 
     const { rows } = await db.query(
-      `SELECT id, title, emoji, event_at, remind_at, recurring_id FROM events
+      `SELECT id, title, emoji, event_at, remind_at, recurring_id, done_at FROM events
        WHERE chat_id=$1 AND event_at >= $2 AND event_at <= $3
        ORDER BY event_at ASC LIMIT 500`,
       [chatId, fromIso, toIso]
@@ -35,6 +36,8 @@ export default async function handler(req, res) {
         hasReminder: !!e.remind_at,
         remindOffsetMinutes: eventOffset(e),
         recurring: !!e.recurring_id,
+        done: !!e.done_at,
+        doneAt: e.done_at || null,
       })),
     });
     return;
