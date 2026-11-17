@@ -6,6 +6,8 @@ const { loadContext, saveContext } = require("../../../lib/context");
 const { reminderKeyboard } = require("../../../lib/handlers/reminderButtons");
 const { sendDayBeforeReminders } = require("../../../lib/dayBefore");
 
+const { deliverReminder } = require("../../../lib/reminderDelivery");
+
 const RECURRING_BUFFER_SIZE = 8;
 const STALE_AFTER_MS = 2 * 60 * 60 * 1000; // напоминания о делах, прошедших больше 2 часов назад, не отправляем
 
@@ -53,18 +55,14 @@ export default async function handler(req, res) {
     // второе напоминание «накануне в 12:00» (дни рождения)
     const dayBefore = await sendDayBeforeReminders(tzFor);
 
-    // «занимаем» пачку напоминаний одним запросом: так два одновременных запуска не отправят одно и то же дважды
-    const { rows: claimed } = await db.query(
-      `UPDATE events SET reminded = TRUE
-       WHERE id IN (
-         SELECT id FROM events
-         WHERE reminded = FALSE AND done_at IS NULL AND remind_at <= now()
-         ORDER BY remind_at LIMIT 50
-         FOR UPDATE SKIP LOCKED
-       )
-       RETURNING *`
+    // Кандидатов проверяем повторно под блокировкой непосредственно перед отправкой.
+    const { rows: candidates } = await db.query(
+      `SELECT * FROM events
+       WHERE reminded = FALSE AND done_at IS NULL AND remind_at <= now()
+         AND event_at >= now() - interval '2 hours'
+       ORDER BY remind_at LIMIT 50`
     );
-    const rows = claimed.sort((x, y) => new Date(x.remind_at) - new Date(y.remind_at));
+    const rows = candidates;
 
     // у дней рождения (серии с двумя напоминаниями) кнопок «Сделано» и «Перенос» нет — только текст
     const recIds = Array.from(new Set(rows.map((r) => r.recurring_id).filter(Boolean)));
@@ -76,32 +74,36 @@ export default async function handler(req, res) {
 
     let skipped = 0;
     for (const ev of rows) {
-      // событие давно прошло (например, был простой) — не шлём устаревшее, оно уже помечено отправленным
-      if (new Date(ev.event_at).getTime() < Date.now() - STALE_AFTER_MS) {
-        skipped += 1;
-        continue;
-      }
-      const tz = await tzFor(ev.chat_id);
-      const { dateStr, timeStr } = utcIsoToLocalParts(ev.event_at, tz);
-      const text =
-        `⏰ Напоминание: ${ev.emoji || "📌"} ${ev.title}\n` +
-        `🗓 Событие: ${formatDateHuman(dateStr, timeStr)}`;
       try {
-        const sent = await sendMessage(
-          ev.chat_id,
-          text,
-          noButtons.has(ev.recurring_id) ? {} : { replyMarkup: reminderKeyboard(ev.id, ev.is_doc === true) }
-        );
-        if (sent) {
-          // запоминаем дело: ответ на напоминание («перенеси на завтра», «удали») должен понимать, о чём речь;
-          // если человек как раз отвечает на вопрос бота (pending) — его не трогаем
-          const ctx = await loadContext(ev.chat_id);
-          if (!ctx.pending) await saveContext(ev.chat_id, { ...ctx, last_event_id: ev.id });
-        }
+        const sent = await deliverReminder(ev.id, "reminded", async (current) => {
+          // Время или состояние дела могли измениться после чтения кандидатов.
+          if (new Date(current.remind_at).getTime() > Date.now() ||
+              new Date(current.event_at).getTime() < Date.now() - STALE_AFTER_MS) {
+            skipped += 1;
+            return false;
+          }
+          const tz = await tzFor(current.chat_id);
+          const { dateStr, timeStr } = utcIsoToLocalParts(current.event_at, tz);
+          const text =
+            `⏰ Напоминание: ${current.emoji || "📌"} ${current.title}\n` +
+            `🗓 Событие: ${formatDateHuman(dateStr, timeStr)}`;
+          return sendMessage(
+            current.chat_id,
+            text,
+            noButtons.has(current.recurring_id) ? {} : { replyMarkup: reminderKeyboard(current.id, current.is_doc === true) }
+          );
+        });
+        if (!sent) continue;
       } catch (e) {
         console.error("reminder send failed for", ev.id, e);
-        // не отправилось — снимаем отметку, следующая минута повторит попытку
-        await db.query(`UPDATE events SET reminded = FALSE WHERE id = $1`, [ev.id]);
+        continue;
+      }
+      // Ошибка контекста после доставки не должна приводить к повторной отправке.
+      try {
+        const ctx = await loadContext(ev.chat_id);
+        if (!ctx.pending) await saveContext(ev.chat_id, { ...ctx, last_event_id: ev.id });
+      } catch (e) {
+        console.error("reminder context failed for", ev.id, e);
       }
     }
 
