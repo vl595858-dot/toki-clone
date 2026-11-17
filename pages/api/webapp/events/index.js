@@ -1,5 +1,5 @@
 const { requireTelegramUser } = require("../_auth");
-const { toUtcIso, todayInOffset } = require("../../../../lib/time");
+const { toUtcIso, todayInOffset, isValidDate, dateTimeError } = require("../../../../lib/time");
 const { getTzOffset } = require("../../../../lib/settings");
 const db = require("../../../../lib/db");
 
@@ -13,6 +13,12 @@ export default async function handler(req, res) {
     const { from, to } = req.query;
     const fromIso = from || new Date(Date.now() - 3 * 86400000).toISOString();
     const toIso = to || new Date(Date.now() + 90 * 86400000).toISOString();
+
+    if (![fromIso, toIso].every(value => typeof value === "string" && isValidDate(value.slice(0, 10)) && Number.isFinite(Date.parse(value))) ||
+        Date.parse(fromIso) > Date.parse(toIso)) {
+      res.status(400).json({ error: "Уточни корректные даты начала и конца периода." });
+      return;
+    }
 
     const { rows } = await db.query(
       `SELECT id, title, emoji, event_at, remind_at, recurring_id FROM events
@@ -43,6 +49,8 @@ export default async function handler(req, res) {
     const tz = await getTzOffset(chatId);
     const dateStr = date || todayInOffset(tz);
     const timeStr = time || "12:00"; // без времени — полдень, как и в боте
+    const invalid = dateTimeError(dateStr, timeStr);
+    if (invalid) { res.status(400).json({ error: invalid }); return; }
     const eventAtIso = toUtcIso(dateStr, timeStr, tz);
     const eventMs = new Date(eventAtIso).getTime();
 

@@ -24,6 +24,8 @@ const { handleReminderButton } = require("../../../lib/handlers/reminderButtons"
 const { handleRescheduleRecurring, handleRenameEvent } = require("../../../lib/handlers/recurringEdit");
 const { prepareTarget, isNewCommand } = require("../../../lib/targetQuery");
 const { commandOffset, OFF, AMBIGUOUS, INTERVAL_QUESTION, isIntervalOnly } = require("../../../lib/reminderSettings");
+const { dateInputError } = require("../../../lib/dateInput");
+const { historicalListScope } = require("../../../lib/time");
 const { claimUpdate } = require("../../../lib/dedupe");
 
 
@@ -205,6 +207,12 @@ async function handleUpdate(update) {
     parsed.intent = "reschedule_recurring_event";
     parsed.title = stripForeverWord(parsed.title);
   }
+
+  if (/^(?:create_|reschedule_)/.test(parsed.intent)) {
+    const invalid = dateInputError(text, parsed.event_date, tz);
+    if (invalid) { await sendMessage(chatId, invalid); return; }
+  }
+  if (parsed.intent === "list_events") parsed.list_scope = historicalListScope(text) || parsed.list_scope;
 
   prepareTarget(parsed, text, tz);
   if (parsed.intent === "reschedule_event" && parsed.refers_to_last &&

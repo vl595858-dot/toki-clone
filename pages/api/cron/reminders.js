@@ -40,7 +40,14 @@ export default async function handler(req, res) {
 
       const tz = await tzFor(tpl.chat_id);
       const afterIso = future.length > 0 ? future[0].event_at : undefined;
-      const newOccurrences = nextNOccurrencesUtcIso(tpl, tz, missing, afterIso);
+      let newOccurrences;
+      try {
+        newOccurrences = nextNOccurrencesUtcIso(tpl, tz, missing, afterIso);
+      } catch (error) {
+        if (error.code !== "INVALID_DATE_TIME") throw error;
+        console.error("invalid recurring date for", tpl.id, error);
+        continue; // старая некорректная серия не мешает доставке остальных напоминаний
+      }
 
       for (const occIso of newOccurrences) {
         const remindIso = reminderAt(occIso, templateOffset(tpl));

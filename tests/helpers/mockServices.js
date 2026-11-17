@@ -6,12 +6,22 @@ const settings = require('../../lib/reminderSettings');
 const root = path.resolve(__dirname, '../..');
 
 // Runs real handlers and SQL construction against an in-memory service substitute.
-function fixture() {
+function fixture(options = {}) {
+  const now = options.now ? Date.parse(options.now) : null;
+  class FixedDate extends Date {
+    constructor(...args) { super(...(args.length ? args : [now])); }
+    static now() { return now; }
+  }
+  const Clock = now === null ? Date : FixedDate;
   const state = { events: [], templates: [], ctx: {}, replies: [], queries: [], model: {}, text: '', voice: false, errors: [], tz: '+00:00' };
   let nextId = 1;
   function matches(row, where, args) {
     for (const match of where.matchAll(/(?:\w+\.)?(id|chat_id|recurring_id)\s*=\s*\$(\d+)/g)) {
       if (row[match[1]] !== args[Number(match[2]) - 1]) return false;
+    }
+    for (const match of where.matchAll(/(?:\w+\.)?event_at\s*(>=|<=|<|>)\s*\$(\d+)/g)) {
+      const actual = Date.parse(row.event_at), boundary = Date.parse(args[Number(match[2]) - 1]);
+      if (!(match[1] === ">=" ? actual >= boundary : match[1] === "<=" ? actual <= boundary : match[1] === "<" ? actual < boundary : actual > boundary)) return false;
     }
     if (/remind_at IS NOT NULL/.test(where) && row.remind_at == null) return false;
     if (/reminded = FALSE/.test(where) && row.reminded) return false;
@@ -84,7 +94,7 @@ function fixture() {
       .replace('export const config', 'const config').replace('export const maxDuration', 'const maxDuration')
       .replace('export default async function handler', 'module.exports = async function handler');
     if (relative === 'pages/api/telegram/[secret].js') source += '\nmodule.exports.runUpdate = handleUpdate;';
-    vm.runInNewContext(source, {module, exports: module.exports, console: {...console, error: (...args) => state.errors.push(args)}, process, AbortSignal,
+    vm.runInNewContext(source, {module, exports: module.exports, console: {...console, error: (...args) => state.errors.push(args)}, process, AbortSignal, Date: Clock,
       require: name => name.startsWith('.') ? load(path.relative(root, path.resolve(path.dirname(filename), name)) + '.js') : require(name),
     }, {filename});
     return module.exports;
@@ -94,10 +104,10 @@ function fixture() {
     state.text = text; state.model = model;
     await load('pages/api/telegram/[secret].js').runUpdate({message: {chat: {id: 1}, ...(voice ? {voice: {file_id: 'mock'}} : {text})}});
   };
-  state.api = async (method, body, id) => {
+  state.api = async (method, body, id, query = {}) => {
     let status, response;
     const res = {status(code) {status = code; return this;}, json(value) {response = value;}, end() {}};
-    await load(`pages/api/webapp/events/${id ? '[id]' : 'index'}.js`)({method, body, query: {id, from: '2099-01-01', to: '2100-01-01'}}, res);
+    await load(`pages/api/webapp/events/${id ? '[id]' : 'index'}.js`)({method, body, query: {id, from: '2099-01-01', to: '2100-01-01', ...query}}, res);
     return {status, response};
   };
   state.seed = offset => {

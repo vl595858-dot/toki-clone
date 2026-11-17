@@ -1,5 +1,5 @@
 const { requireTelegramUser } = require("../_auth");
-const { toUtcIso, utcIsoToLocalParts } = require("../../../../lib/time");
+const { toUtcIso, utcIsoToLocalParts, dateTimeError } = require("../../../../lib/time");
 const { getTzOffset } = require("../../../../lib/settings");
 const db = require("../../../../lib/db");
 
@@ -33,6 +33,8 @@ export default async function handler(req, res) {
       const newDate = date || oldLocal.dateStr;
       // пустое время («без времени») = 12:00, как и везде в проекте
       const newTime = time === "" ? "12:00" : time || oldLocal.timeStr;
+      const invalid = dateTimeError(newDate, newTime);
+      if (invalid) { res.status(400).json({ error: invalid }); return; }
       eventAtIso = toUtcIso(newDate, newTime, tz);
     }
 
