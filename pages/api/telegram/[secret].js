@@ -2,7 +2,7 @@ const { sendMessage } = require("../../../lib/telegram");
 const { transcribeVoice, parseMessage } = require("../../../lib/ai");
 const { loadContext, saveContext } = require("../../../lib/context");
 const { getTzOffset } = require("../../../lib/settings");
-const { stripContextWords, extractOffsetMinutes, isAtEventMoment, hasForeverWord, stripForeverWord, parseRename, isBirthday, extractExplicitEventTime } = require("../../../lib/text");
+const { stripContextWords, hasForeverWord, stripForeverWord, parseRename, isBirthday, extractExplicitEventTime } = require("../../../lib/text");
 const { buildContextText } = require("../../../lib/contextText");
 const { handleWeather } = require("../../../lib/handlers/weather");
 const { handleCallbackQuery, handleTimezoneCityReply, handleTimezoneCommand, askCityIfNew } = require("../../../lib/handlers/timezone");
@@ -22,6 +22,7 @@ const { handleCalendar } = require("../../../lib/handlers/calendar");
 const { handleSearchEvents } = require("../../../lib/handlers/search");
 const { handleReminderButton } = require("../../../lib/handlers/reminderButtons");
 const { handleRescheduleRecurring, handleRenameEvent } = require("../../../lib/handlers/recurringEdit");
+const { commandOffset, OFF } = require("../../../lib/reminderSettings");
 const { claimUpdate } = require("../../../lib/dedupe");
 
 
@@ -173,29 +174,19 @@ async function handleUpdate(update) {
     parsed.title = stripForeverWord(parsed.title);
   }
 
-  // интервал напоминания, названный в самом сообщении, модель иногда теряет — берём из текста
-  if (
-    (parsed.intent === "set_reminder" || parsed.intent === "reschedule_event") &&
-    !Number.isFinite(parsed.remind_offset_minutes)
-  ) {
-    const off = extractOffsetMinutes(text);
-    if (off) parsed.remind_offset_minutes = off;
-    else if (isAtEventMoment(text)) parsed.remind_offset_minutes = 0;
-  }
-
-  // интервал напоминания при создании дела решает код по тексту, а не модель (она иногда берёт его из прошлых сообщений):
-  // назван интервал — он; «напомни …» или «в момент события» без интервала — ровно в момент дела;
-  // про напоминание ничего не сказано — null, и сработает значение по умолчанию (за час)
-  if (parsed.intent === "create_event" || parsed.intent === "create_recurring_event") {
-    const off = extractOffsetMinutes(text);
-    if (off) parsed.remind_offset_minutes = off;
-    else if (/напомн/i.test(text) || isAtEventMoment(text)) parsed.remind_offset_minutes = 0;
-    else parsed.remind_offset_minutes = null;
-
-    // день рождения: если интервал не назван — напоминаем за неделю (7 суток), время по умолчанию 10:00
+  // Состояние напоминания берём только из текущей команды, не из памяти модели.
+  if (["create_event", "create_recurring_event", "reschedule_event", "reschedule_recurring_event", "set_reminder"].includes(parsed.intent)) {
+    const offset = commandOffset(text);
+    parsed.reminder_disabled = offset === OFF;
+    parsed.remind_offset_minutes = offset !== undefined && offset !== OFF ? offset : null;
+    if (offset === undefined && parsed.intent === "reschedule_event" && ctx.pending?.type === "reschedule_time") {
+      parsed.reminder_disabled = ctx.pending.reminder_disabled === true;
+      parsed.remind_offset_minutes = ctx.pending.remind_offset_minutes ?? null;
+    }
+    if (parsed.intent === "set_reminder" && offset === OFF) parsed.intent = "cancel_reminder";
     if (parsed.intent === "create_recurring_event" && isBirthday(text)) {
       parsed.is_birthday = true;
-      if (parsed.remind_offset_minutes === null) parsed.remind_offset_minutes = 10080;
+      if (offset === undefined) parsed.remind_offset_minutes = 10080;
     }
   }
 

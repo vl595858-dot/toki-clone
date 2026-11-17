@@ -3,6 +3,8 @@ const { toUtcIso, todayInOffset } = require("../../../../lib/time");
 const { getTzOffset } = require("../../../../lib/settings");
 const db = require("../../../../lib/db");
 
+const { apiOffset, eventOffset, reminderAt } = require("../../../../lib/reminderSettings");
+
 export default async function handler(req, res) {
   const chatId = requireTelegramUser(req, res);
   if (!chatId) return;
@@ -25,6 +27,7 @@ export default async function handler(req, res) {
         emoji: e.emoji || "📌",
         eventAt: e.event_at,
         hasReminder: !!e.remind_at,
+        remindOffsetMinutes: eventOffset(e),
         recurring: !!e.recurring_id,
       })),
     });
@@ -54,10 +57,15 @@ export default async function handler(req, res) {
     }
 
     // напоминание по умолчанию — за час; если за нужное время уже не успеть — напомним в момент дела
-    const offsetMin = Number.isFinite(remindOffsetMinutes) ? remindOffsetMinutes : 60;
-    let remindMs = eventMs - offsetMin * 60000;
-    if (remindMs <= Date.now()) remindMs = eventMs;
-    const remindAtIso = new Date(remindMs).toISOString();
+    let offsetMin;
+    try {
+      offsetMin = apiOffset(remindOffsetMinutes, 60);
+    } catch (error) {
+      res.status(400).json({ error: error.message });
+      return;
+    }
+    let remindAtIso = reminderAt(eventAtIso, offsetMin);
+    if (remindAtIso !== null && new Date(remindAtIso).getTime() <= Date.now()) remindAtIso = eventAtIso;
 
     const ins = await db.query(
       `INSERT INTO events (chat_id, title, emoji, event_at, remind_at) VALUES ($1,$2,$3,$4,$5) RETURNING id`,

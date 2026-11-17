@@ -66,6 +66,7 @@ function fixture(voice) {
     '../../../lib/context': {loadContext: async () => ctx, saveContext: async (id, value) => {ctx = value;}},
     '../../../lib/settings': {getTzOffset: async () => '+05:00'},
     '../../../lib/text': require('../lib/text'),
+    '../../../lib/reminderSettings': require('../lib/reminderSettings'),
     '../../../lib/contextText': {buildContextText: async () => 'Последний город: Пермь'},
     '../../../lib/handlers/weather': weatherHandler,
   };

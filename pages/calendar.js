@@ -173,14 +173,14 @@ function Planner({ initData, tzOffset }) {
     }
   };
 
-  const add = async (dk, title, time) => {
+  const add = async (dk, title, time, remindOffsetMinutes) => {
     if (!title.trim()) return;
     setSyncing(true);
     setErr("");
     try {
       await api(initData, "/api/webapp/events", {
         method: "POST",
-        body: JSON.stringify({ title: title.trim(), date: dk, time: time || null }),
+        body: JSON.stringify({ title: title.trim(), date: dk, time: time || null, remindOffsetMinutes }),
       });
       load();
     } catch (e) {
@@ -190,8 +190,11 @@ function Planner({ initData, tzOffset }) {
     }
   };
 
-  const editEvent = (ev, title, time) => {
-    patchEvent(ev.id, { title, date: ev.date, time },
+  const editEvent = (ev, title, time, remindOffsetMinutes) => {
+    const body = { title };
+    if (time !== ev.time) body.time = time;
+    if (remindOffsetMinutes !== ev.remindOffsetMinutes) body.remindOffsetMinutes = remindOffsetMinutes;
+    patchEvent(ev.id, body,
       (list) => list.map((e) => (e.id === ev.id ? { ...e, title } : e)));
   };
 
@@ -270,7 +273,7 @@ function Planner({ initData, tzOffset }) {
                   onDelete={remove} onEdit={editEvent} onMove={move}
                   menuFor={menuFor} setMenuFor={setMenuFor}
                   adding={addFor === k} onAdd={() => setAddFor(k)} onCancel={() => setAddFor(null)}
-                  onSubmit={(t, tm) => { add(k, t, tm); setAddFor(null); }} />
+                  onSubmit={(t, tm, r) => { add(k, t, tm, r); setAddFor(null); }} />
               </div>
             );
           })}
@@ -304,7 +307,7 @@ function Day({ date, today, items, onDelete, onEdit, onMove, menuFor, setMenuFor
   const row = (ev) => (
     <Row key={ev.id} ev={ev} isPast={isPast}
       onDelete={() => onDelete(ev)}
-      onEdit={(t, tm) => onEdit(ev, t, tm)} onMove={(dk) => onMove(ev, dk)}
+      onEdit={(t, tm, r) => onEdit(ev, t, tm, r)} onMove={(dk) => onMove(ev, dk)}
       menuOpen={menuFor === ev.id} onMenu={() => setMenuFor(menuFor === ev.id ? null : ev.id)}
       base={isPast ? today : date} />
   );
@@ -331,8 +334,8 @@ function Row({ ev, isPast, onDelete, onEdit, onMove, menuOpen, onMenu, base }) {
   const [editing, setEditing] = useState(false);
 
   if (editing) return (
-    <Form mode="edit" title0={ev.title} time0={ev.time || ""}
-      onSubmit={(t, tm) => { onEdit(t, tm); setEditing(false); }} onCancel={() => setEditing(false)} />
+    <Form mode="edit" title0={ev.title} time0={ev.time || ""} remind0={ev.remindOffsetMinutes}
+      onSubmit={(t, tm, r) => { onEdit(t, tm, r); setEditing(false); }} onCancel={() => setEditing(false)} />
   );
 
   return (
@@ -360,12 +363,15 @@ function Row({ ev, isPast, onDelete, onEdit, onMove, menuOpen, onMenu, base }) {
   );
 }
 
-function Form({ mode, title0 = "", time0 = "", onSubmit, onCancel }) {
+function Form({ mode, title0 = "", time0 = "", remind0 = 60, onSubmit, onCancel }) {
   const [title, setTitle] = useState(title0);
   const [time, setTime] = useState(time0);
+  const [reminder, setReminder] = useState(remind0);
+  const reminderOptions = [-1, 0, 15, 30, 60, 1440, 10080];
+  if (!reminderOptions.includes(remind0)) reminderOptions.push(remind0);
   const ref = useRef(null);
   useEffect(() => { if (ref.current) ref.current.focus(); }, []);
-  const go = () => { if (!title.trim()) return onCancel(); onSubmit(title, time); };
+  const go = () => { if (!title.trim()) return onCancel(); onSubmit(title, time, reminder); };
 
   return (
     <div style={{ margin: "8px 0", padding: 10, background: C.paper, borderRadius: 10, border: `1px solid ${C.line}` }}>
@@ -377,6 +383,12 @@ function Form({ mode, title0 = "", time0 = "", onSubmit, onCancel }) {
         <input type="time" value={time} onChange={(e) => setTime(e.target.value)}
           style={{ fontSize: 13, border: `1px solid ${C.line}`, borderRadius: 6, padding: "6px 7px", background: "#fff" }} />
         {time && <button onClick={() => setTime("")} style={{ border: "none", background: "transparent", color: C.soft, fontSize: 12, cursor: "pointer" }}>без времени</button>}
+        <select aria-label="Напоминание" value={reminder} onChange={(e) => setReminder(Number(e.target.value))}
+          style={{ fontSize: 13, border: `1px solid ${C.line}`, borderRadius: 6, padding: "6px 7px", background: "#fff" }}>
+          {reminderOptions.map((n) => <option key={n} value={n}>
+            {n === -1 ? "Не напоминать" : n === 0 ? "В момент события" : `За ${n} мин.`}
+          </option>)}
+        </select>
         <div style={{ marginLeft: "auto", display: "flex", gap: 6 }}>
           <button onClick={onCancel} style={{ border: "none", background: "transparent", color: C.soft, fontSize: 13, cursor: "pointer", padding: "7px 4px" }}>Отмена</button>
           <button onClick={go} style={{ border: "none", background: C.accent, color: "#fff", fontSize: 13, borderRadius: 20, padding: "7px 16px", cursor: "pointer" }}>

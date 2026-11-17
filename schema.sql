@@ -8,7 +8,7 @@ CREATE TABLE IF NOT EXISTS recurring_events (
   emoji TEXT DEFAULT '📌',
   weekday INT,                              -- 0..6, может быть NULL (daily/monthly/yearly)
   time TEXT,                                -- 'HH:MM' местное время чата
-  remind_offset_minutes INT NOT NULL DEFAULT 0,
+  remind_offset_minutes INT NOT NULL DEFAULT 0, -- -1: отключено; 0: в момент; >0: за N минут
   frequency TEXT NOT NULL DEFAULT 'weekly', -- daily | weekly | monthly | yearly
   month_day INT,
   month INT,
@@ -22,7 +22,7 @@ CREATE TABLE IF NOT EXISTS events (
   title TEXT NOT NULL,
   emoji TEXT DEFAULT '📌',
   event_at TIMESTAMPTZ NOT NULL,
-  remind_at TIMESTAMPTZ,
+  remind_at TIMESTAMPTZ,                   -- NULL: оба напоминания выключены (в том числе у старых записей)
   reminded BOOLEAN NOT NULL DEFAULT FALSE,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   recurring_id INT REFERENCES recurring_events(id) ON DELETE SET NULL,

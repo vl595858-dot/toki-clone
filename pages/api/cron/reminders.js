@@ -8,6 +8,8 @@ const { sendDayBeforeReminders } = require("../../../lib/dayBefore");
 
 const { deliverReminder } = require("../../../lib/reminderDelivery");
 
+const { reminderAt, templateOffset } = require("../../../lib/reminderSettings");
+
 const RECURRING_BUFFER_SIZE = 8;
 const STALE_AFTER_MS = 2 * 60 * 60 * 1000; // напоминания о делах, прошедших больше 2 часов назад, не отправляем
 
@@ -41,9 +43,7 @@ export default async function handler(req, res) {
       const newOccurrences = nextNOccurrencesUtcIso(tpl, tz, missing, afterIso);
 
       for (const occIso of newOccurrences) {
-        const remindIso = new Date(
-          new Date(occIso).getTime() - tpl.remind_offset_minutes * 60000
-        ).toISOString();
+        const remindIso = reminderAt(occIso, templateOffset(tpl));
         await db.query(
           `INSERT INTO events (chat_id, title, emoji, event_at, remind_at, recurring_id) VALUES ($1,$2,$3,$4,$5,$6)`,
           [tpl.chat_id, tpl.title, tpl.emoji, occIso, remindIso, tpl.id]

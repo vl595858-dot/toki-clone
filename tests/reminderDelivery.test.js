@@ -56,7 +56,7 @@ function fixture(count = 1, clock = Date) {
           const row = rows.find(r => r.id === args[0]);
           if (sql.startsWith('SELECT')) {
             assert.match(sql, /FOR UPDATE SKIP LOCKED/);
-            if (!row || row[column] || row.done_at || locks.has(row.id)) return {rows: []};
+            if (!row || row[column] || row.done_at || row.remind_at == null || locks.has(row.id)) return {rows: []};
             locks.add(row.id); locked = row.id;
             return {rows: [{...row}]};
           }
@@ -86,6 +86,7 @@ function fixture(count = 1, clock = Date) {
     '../../../lib/context': {loadContext: async () => { if (state.contextsFail) throw new Error('context failed'); return {}; }, saveContext: async () => {}},
     '../../../lib/handlers/reminderButtons': {reminderKeyboard: () => ({inline_keyboard: []})},
     '../../../lib/dayBefore': dayBefore, '../../../lib/reminderDelivery': delivery,
+    '../../../lib/reminderSettings': require('../lib/reminderSettings'),
   });
   state.run = async () => {
     let status;
@@ -195,4 +196,22 @@ test('day-before reminders also retry failures and serialize overlapping runs', 
   assert.equal(await first, 1);
   assert.equal(f.rows[0].reminded2, true);
   assert.equal(f.calls.length, 2);
+});
+
+// Legacy disabled rows may still have reminded2=FALSE after an old cancellation.
+test('disabled legacy birthday never sends either notification', async () => {
+  const now = Date.parse('2099-11-22T13:00:00Z');
+  class FixedDate extends Date {
+    constructor(...args) { super(...(args.length ? args : [now])); }
+    static now() { return now; }
+  }
+  const f = fixture(1, FixedDate);
+  f.rows[0].event_at = '2099-11-23T10:00:00Z';
+  f.dayBefore = true;
+  f.rows[0].remind_at = null;
+  f.rows[0].reminded2 = false;
+  await f.run();
+  assert.equal(f.calls.length, 0);
+  assert.equal(f.rows[0].reminded, false);
+  assert.equal(f.rows[0].reminded2, false);
 });
