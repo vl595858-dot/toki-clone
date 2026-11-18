@@ -15,6 +15,7 @@ function fixture(options = {}) {
   const Clock = now === null ? Date : FixedDate;
   const state = { events: [], templates: [], ctx: {}, replies: [], queries: [], model: {}, text: '', voice: false, errors: [], tz: '+00:00' };
   let nextId = 1;
+  state.steps = {}; state.sent = []; state.answers = []; state.edits = [];
   function matches(row, where, args) {
     for (const match of where.matchAll(/(?:\w+\.)?(id|chat_id|recurring_id)\s*=\s*\$(\d+)/g)) {
       if (row[match[1]] !== args[Number(match[2]) - 1]) return false;
@@ -32,6 +33,16 @@ function fixture(options = {}) {
   }
   const db = {async query(sql, args = []) {
     state.queries.push({sql, args});
+    if (/^(CREATE TABLE|ALTER TABLE|CREATE INDEX)/.test(sql)) return {rows: []};
+    if (sql.startsWith('DELETE FROM document_steps')) return {rows: []};
+    if (sql.startsWith('INSERT INTO chat_context')) return {rows: []};
+    if (sql.startsWith('SELECT context FROM chat_context')) return {rows: [{context: JSON.parse(JSON.stringify(state.ctx))}]};
+    if (sql.startsWith('UPDATE chat_context')) { state.ctx = JSON.parse(args[1]); return {rows: []}; }
+    if (sql.startsWith('INSERT INTO document_steps')) { state.steps[args[0]] = {chat: args[1], payload: JSON.parse(args[2]), consumed: false}; return {rows: []}; }
+    if (sql.startsWith('UPDATE document_steps')) { const row = state.steps[args[0]]; if (row && row.chat === args[1]) row.consumed = true; return {rows: []}; }
+    if (sql.startsWith('SELECT payload FROM document_steps')) { const row = state.steps[args[0]]; return {rows: row && row.chat === args[1] && !row.consumed && !row.expired ? [{payload: JSON.parse(JSON.stringify(row.payload))}] : []}; }
+    if (state.failInsert && sql.startsWith('INSERT INTO events')) { if (--state.failInsert === 0) throw new Error('Mock insert failed'); }
+
     if (sql.startsWith('SELECT t.* FROM recurring_events t JOIN events')) {
       const ev = state.events.find(e => e.id === args[0]);
       return {rows: state.templates.filter(t => t.id === ev?.recurring_id).map(t => ({...t}))};
@@ -74,13 +85,29 @@ function fixture(options = {}) {
     }
     return {rows: []};
   }};
-  const telegram = {sendMessage: async (id, text) => {state.replies.push(text); return true;}};
+  let lock = Promise.resolve();
+  db.withTransaction = async fn => {
+    const previous = lock; let release;
+    lock = new Promise(resolve => {release = resolve;});
+    await previous;
+    const snapshot = JSON.parse(JSON.stringify({events: state.events, ctx: state.ctx, steps: state.steps}));
+    try { return await fn(db); }
+    catch (e) { Object.assign(state, snapshot); throw e; }
+    finally { release(); }
+  };
+  const telegram = {
+    sendMessage: async (id, text, options) => {state.replies.push(text); state.sent.push({id, text, options}); return true;},
+    answerCallbackQuery: async (id, text) => {state.answers.push({id, text}); return true;},
+    editMessageText: async (...args) => {state.edits.push(args); return true;},
+  };
   const cache = new Map();
   const mocks = new Map([
+    ['lib/vision.js', {recognizeImage: async () => typeof state.image === 'function' ? state.image() : state.image}],
+    ['lib/dedupe.js', {claimUpdate: async () => true}],
     ['lib/db.js', db], ['lib/telegram.js', telegram],
     ['lib/context.js', {loadContext: async () => state.ctx, saveContext: async (id, ctx) => {state.ctx = ctx;}}],
     ['lib/settings.js', {getTzOffset: async () => state.tz}],
-    ['lib/ai.js', {transcribeVoice: async () => state.text, parseMessage: async () => { if (state.parseFailure) throw new Error('Mock model unavailable'); return {...state.model}; }}],
+    ['lib/ai.js', {transcribeVoice: async () => state.text, parseMessage: async () => { if (state.parseHook) return state.parseHook(); if (state.parseFailure) throw new Error('Mock model unavailable'); return {...state.model}; }}],
     ['lib/contextText.js', {buildContextText: async () => ''}],
     ['pages/api/webapp/_auth.js', {requireTelegramUser: () => 1}],
   ]);
@@ -100,6 +127,14 @@ function fixture(options = {}) {
     return module.exports;
   }
   state.load = load;
+  state.photo = async (docs, caption) => {
+    state.image = {documents: docs};
+    await load('pages/api/telegram/[secret].js').runUpdate({message: {chat: {id: 1}, photo: [{file_id: 'mock'}], caption}});
+  };
+  state.callback = async data => {
+    await load('pages/api/telegram/[secret].js')({method: 'POST', query: {secret: process.env.TELEGRAM_WEBHOOK_SECRET}, body: {callback_query: {id: 'cq', data, message: {chat: {id: 1}, message_id: 10, text: 'Документ'}}}},
+      {status() {return this;}, json() {}, end() {}});
+  };
   state.send = async (text, model, voice = false) => {
     state.text = text; state.model = model;
     await load('pages/api/telegram/[secret].js').runUpdate({message: {chat: {id: 1}, ...(voice ? {voice: {file_id: 'mock'}} : {text})}});

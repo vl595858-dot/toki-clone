@@ -63,3 +63,15 @@ CREATE TABLE IF NOT EXISTS processed_updates (
   update_id BIGINT PRIMARY KEY,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+-- Immutable, expiring document confirmation steps; consumed atomically with event creation.
+CREATE TABLE IF NOT EXISTS document_steps (
+  token TEXT PRIMARY KEY,
+  chat_id BIGINT NOT NULL,
+  payload JSONB NOT NULL,
+  consumed BOOLEAN NOT NULL DEFAULT FALSE,
+  expires_at TIMESTAMPTZ NOT NULL DEFAULT now() + interval '60 minutes'
+);
+ALTER TABLE document_steps ENABLE ROW LEVEL SECURITY;
+
+CREATE INDEX IF NOT EXISTS document_steps_expiry_idx ON document_steps (expires_at);
