@@ -60,7 +60,7 @@ Telegram-бот-органайзер @moideladelishki_bot и Mini App «Кале
   Модели ЗАПРЕЩЕНО вычислять remind_offset_minutes разностью времён.
 - Вебхук сначала дожидается обработки и только потом отвечает 200 (maxDuration 10).
 - Mini App: авторизация по initData (HMAC-SHA256), заголовок Authorization: tma <initData>.
-- Очистка: раз в неделю (воскресенье 22:00 UTC) cron удаляет дела старше 30 дней, выполненные и нет (pages/api/cron/reminders.js).
+- Очистка: при каждом авторизованном запуске cron, до рассылки, удаляются строки events с event_at < now() - interval '30 days', выполненные и нет, включая старые экземпляры серий. Будущие события и шаблоны recurring_events сохраняются. Ошибка очистки не блокирует рассылку; повтор — при следующем запуске (lib/eventCleanup.js, pages/api/cron/reminders.js).
 - «Сделано» = events.done_at; у повторяющегося отмечается только этот экземпляр; сделанные дела не напоминаются, в списках показываются с ✅.
 - Кодовые слова решает код (lib/text.js: hasForeverWord, parseRename), а не модель: «навсегда»/«насовсем» + reschedule_event → reschedule_recurring_event; «переименуй» → rename_event.
 - Дни рождения: lib/text.js isBirthday + create_recurring_event → напоминание по умолчанию за 7 суток (10080 мин), время по умолчанию 10:00; явный интервал в тексте главнее.

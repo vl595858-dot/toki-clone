@@ -10,14 +10,27 @@ const { deliverReminder } = require("../../../lib/reminderDelivery");
 
 const { reminderAt, templateOffset } = require("../../../lib/reminderSettings");
 
+const { cleanupOldEvents } = require("../../../lib/eventCleanup");
+
 const RECURRING_BUFFER_SIZE = 8;
 const STALE_AFTER_MS = 2 * 60 * 60 * 1000; // напоминания о делах, прошедших больше 2 часов назад, не отправляем
 
 export default async function handler(req, res) {
   const auth = req.headers.authorization;
-  if (auth !== `Bearer ${process.env.CRON_SECRET}`) {
+  if (!process.env.CRON_SECRET || auth !== `Bearer ${process.env.CRON_SECRET}`) {
     res.status(401).json({ error: "unauthorized" });
     return;
+  }
+
+  // Run on every authorized invocation: a missed Sunday window or a failed
+  // reminder must not postpone retention for another week.
+  let cleaned = 0;
+  let cleanupFailed = false;
+  try {
+    cleaned = await cleanupOldEvents();
+  } catch {
+    cleanupFailed = true;
+    console.error("event cleanup failed; will retry on next cron invocation");
   }
 
   const tzCache = new Map();
@@ -114,20 +127,7 @@ export default async function handler(req, res) {
       }
     }
 
-    // раз в неделю (воскресенье 22:00 UTC = понедельник 03:00 по Перми) удаляем дела старше 30 дней,
-    // и выполненные, и нет, чтобы база не разрасталась; окно в 5 минут на случай пропущенного запуска
-    let cleaned = 0;
-    const now = new Date();
-    if (now.getUTCDay() === 0 && now.getUTCHours() === 22 && now.getUTCMinutes() < 5) {
-      try {
-        const del = await db.query(`DELETE FROM events WHERE event_at < now() - interval '30 days'`);
-        cleaned = del.rowCount || 0;
-      } catch (e) {
-        console.error("cleanup error", e);
-      }
-    }
-
-    res.status(200).json({ processed: rows.length - skipped, skipped, regenerated, dayBefore, cleaned });
+    res.status(200).json({ processed: rows.length - skipped, skipped, regenerated, dayBefore, cleaned, cleanupFailed });
   } catch (e) {
     console.error("cron reminders error", e);
     res.status(500).json({ error: String(e) });

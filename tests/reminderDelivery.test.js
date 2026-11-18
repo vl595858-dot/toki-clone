@@ -81,6 +81,7 @@ function fixture(count = 1, clock = Date) {
   const time = require('../lib/time');
   const dayBefore = load('lib/dayBefore.js', {'./db': db, './telegram': telegram, './time': time, './reminderDelivery': delivery}, {Date: clock});
   const handler = load('pages/api/cron/reminders.js', {
+    '../../../lib/eventCleanup': {cleanupOldEvents: async () => 0},
     '../../../lib/db': db, '../../../lib/telegram': telegram, '../../../lib/time': time,
     '../../../lib/settings': {getTzOffset: async id => { if (id === state.timezoneFail) throw new Error('timezone failed'); return '+05:00'; }},
     '../../../lib/context': {loadContext: async () => { if (state.contextsFail) throw new Error('context failed'); return {}; }, saveContext: async () => {}},

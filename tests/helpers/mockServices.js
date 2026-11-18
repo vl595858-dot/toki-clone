@@ -26,6 +26,7 @@ function fixture(options = {}) {
     }
     if (/remind_at IS NOT NULL/.test(where) && row.remind_at == null) return false;
     if (/reminded = FALSE/.test(where) && row.reminded) return false;
+    if (/event_at < now\(\) - interval '30 days'/.test(where) && Date.parse(row.event_at) >= Clock.now() - 30 * 86400000) return false;
     if (/done_at IS NULL/.test(where) && row.done_at != null) return false;
     if (/remind_at <= now\(\)/.test(where) && (row.remind_at == null || Date.parse(row.remind_at) > Date.now())) return false;
     if (/event_at <= now\(\) \+ interval '3 days'/.test(where) && Date.parse(row.event_at) > Date.now() + 3 * 86400000) return false;
@@ -67,8 +68,9 @@ function fixture(options = {}) {
     }
     const where = sql.split('WHERE')[1];
     if (sql.startsWith('DELETE')) {
+      const before = store.length;
       for (let i = store.length - 1; i >= 0; i--) if (matches(store[i], where, args)) store.splice(i, 1);
-      return {rows: []};
+      return {rows: [], rowCount: before - store.length};
     }
     assert.ok(sql.startsWith('UPDATE'), sql);
     for (const row of store.filter(r => matches(r, where, args))) {
@@ -121,7 +123,7 @@ function fixture(options = {}) {
       .replace('export const config', 'const config').replace('export const maxDuration', 'const maxDuration')
       .replace('export default async function handler', 'module.exports = async function handler');
     if (relative === 'pages/api/telegram/[secret].js') source += '\nmodule.exports.runUpdate = handleUpdate;';
-    vm.runInNewContext(source, {module, exports: module.exports, console: {...console, error: (...args) => state.errors.push(args)}, process, AbortSignal, Date: Clock,
+    vm.runInNewContext(source, {module, exports: module.exports, console: {...console, error: (...args) => state.errors.push(args)}, process: {...process, env: {...process.env, CRON_SECRET: process.env.CRON_SECRET || "mock-cron"}}, AbortSignal, Date: Clock,
       require: name => name.startsWith('.') ? load(path.relative(root, path.resolve(path.dirname(filename), name)) + '.js') : require(name),
     }, {filename});
     return module.exports;
@@ -154,7 +156,7 @@ function fixture(options = {}) {
   };
   state.cron = async () => {
     let status;
-    await load('pages/api/cron/reminders.js')({headers: {authorization: `Bearer ${process.env.CRON_SECRET}`}},
+    await load('pages/api/cron/reminders.js')({headers: {authorization: `Bearer ${process.env.CRON_SECRET || "mock-cron"}`}},
       {status(code) {status = code; return this;}, json() {}});
     assert.equal(status, 200);
   };
