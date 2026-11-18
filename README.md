@@ -15,7 +15,7 @@
 1. Зайди на https://supabase.com, зарегистрируйся (можно через GitHub)
 2. Создай новый проект (например `moidelishki`)
 3. В разделе **SQL Editor** вставь содержимое файла `schema.sql` из этой папки, выполни (кнопка Run) — создадутся все таблицы
-4. Нажми **Connect**, выбери **Transaction pooler**, скопируй строку вида `postgresql://...` — это `DATABASE_URL`
+4. Нажми **Connect**, выбери **Transaction pooler**, скопируй строку вида `<строка подключения из панели Supabase>` — это `DATABASE_URL`
 
 ## Шаг 3. Получить ключ OpenAI (для распознавания голоса)
 
@@ -46,13 +46,14 @@ git push -u origin main
 
 ## Шаг 5. Переменные окружения на Vercel
 
-Settings → Environment Variables, добавь семь штук:
+Settings → Environment Variables, добавь переменные:
 
 | Имя | Значение |
 |---|---|
 | `TELEGRAM_BOT_TOKEN` | токен из шага 1 |
 | `TELEGRAM_WEBHOOK_SECRET` | любая случайная строка, придумай сама |
-| `SETUP_KEY` | ещё одна случайная строка |
+| `SETUP_KEY` | отдельная случайная строка для служебной настройки; после регистрации можно удалить |
+| `APP_URL` | доверенный адрес приложения, например `https://toki-clone.vercel.app`; на Vercel можно использовать системную `VERCEL_PROJECT_PRODUCTION_URL` |
 | `DATABASE_URL` | строка из шага 2 |
 | `OPENAI_API_KEY` | ключ из шага 3 |
 | `CRON_SECRET` | ещё одна случайная строка |
@@ -62,16 +63,25 @@ Settings → Environment Variables, добавь семь штук:
 
 ## Шаг 6. Зарегистрировать вебхук у Telegram
 
-Узнай адрес сайта (Settings → Domains), затем один раз открой в браузере:
+Для уже работающего бота повторная регистрация и смена ключей не нужны.
+Для первоначальной настройки задай доверенный HTTPS-адрес приложения в `APP_URL`
+(только origin, без пути и параметров). Если `APP_URL` не задан, маршрут использует
+системную переменную Vercel `VERCEL_PROJECT_PRODUCTION_URL`.
 
+Маршрут принимает только POST с заголовком `Authorization: Bearer <SETUP_KEY>`.
+Ключ в URL больше не принимается. Из доверенного терминала с уже заданными
+переменными `APP_URL` и `SETUP_KEY` выполни (без отладочного `set -x`):
+
+```sh
+curl --fail --silent --show-error --request POST \
+  --header "Authorization: Bearer ${SETUP_KEY}" \
+  "${APP_URL}/api/setup-webhook"
 ```
-https://твой-адрес.vercel.app/api/setup-webhook?key=ТВОЙ_SETUP_KEY
-```
 
-(`ТВОЙ_SETUP_KEY` — то, что ты вписала в переменную `SETUP_KEY`)
-
-Должен прийти ответ вида `{"telegramResponse":{"ok":true,...}}` — значит Telegram
-теперь знает, куда слать сообщения.
+Ответ `{"ok":true}` подтверждает регистрацию; секрет и адрес вебхука в ответ не
+попадают. После настройки можно удалить `SETUP_KEY` и выполнить redeploy: это
+отключает служебную настройку, но не приём сообщений. Неверная или отсутствующая
+конфигурация не приводит к вызову Telegram. Заголовки Host не используются.
 
 ## Шаг 7. Подключить cron-job.org для напоминаний
 
