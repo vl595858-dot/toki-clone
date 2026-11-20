@@ -26,6 +26,7 @@ const { prepareTarget, isNewCommand } = require("../../../lib/targetQuery");
 const { commandOffset, OFF, AMBIGUOUS, INTERVAL_QUESTION, isIntervalOnly } = require("../../../lib/reminderSettings");
 const { dateInputError } = require("../../../lib/dateInput");
 const { historicalListScope } = require("../../../lib/time");
+const { handlePlusCommand, handlePlusLink } = require("../../../lib/handlers/plus");
 const { claimUpdate } = require("../../../lib/dedupe");
 
 
@@ -54,6 +55,7 @@ export default async function handler(req, res) {
       const cq = req.body.callback_query;
       if (String(cq.data || "").startsWith("rem:")) await handleReminderButton(cq);
       else if (String(cq.data || "").startsWith("doc:")) await handleDocButton(cq);
+      else if (String(cq.data || "").startsWith("plus:")) await handlePlusLink(cq);
       else await handleCallbackQuery(cq);
     } else {
       await handleUpdate(req.body);
@@ -77,6 +79,11 @@ async function handleUpdate(update) {
   const message = update.message;
   if (!message) return;
   const chatId = message.chat.id;
+  const plusStart = /^\/start(?:@\w+)? plus_(\S+)$/.exec(message.text?.trim() || "");
+  if (plusStart || /^\/plus(?:@\w+)?$/.test(message.text?.trim() || "")) {
+    await handlePlusCommand(message, plusStart?.[1]);
+    return;
+  }
 
   // картинка (скриншот билета, талона, счёта): разбор документа; PDF и другие файлы не принимаем
   if (message.photo || message.document) {
