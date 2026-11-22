@@ -26,7 +26,9 @@ const { prepareTarget, isNewCommand } = require("../../../lib/targetQuery");
 const { commandOffset, OFF, AMBIGUOUS, INTERVAL_QUESTION, isIntervalOnly } = require("../../../lib/reminderSettings");
 const { dateInputError } = require("../../../lib/dateInput");
 const { historicalListScope } = require("../../../lib/time");
-const { handlePlusCommand, handlePlusLink } = require("../../../lib/handlers/plus");
+const { handlePlusCommand, handlePlusLink, handlePromo, handlePromoDuration } = require("../../../lib/handlers/plus");
+const { charge, release } = require("../../../lib/plusPlans");
+const { limitMessages } = require("../../../lib/plusPlanLimits");
 const { claimUpdate } = require("../../../lib/dedupe");
 
 
@@ -55,6 +57,7 @@ export default async function handler(req, res) {
       const cq = req.body.callback_query;
       if (String(cq.data || "").startsWith("rem:")) await handleReminderButton(cq);
       else if (String(cq.data || "").startsWith("doc:")) await handleDocButton(cq);
+      else if (String(cq.data || "").startsWith("promo:")) await handlePromoDuration(cq);
       else if (String(cq.data || "").startsWith("plus:")) await handlePlusLink(cq);
       else await handleCallbackQuery(cq);
     } else {
@@ -85,6 +88,17 @@ async function handleUpdate(update) {
     return;
   }
 
+  const sharedPromo = /^\/start(?:@\w+)? promo_(PLUS-[A-F0-9]{24})$/i.exec(message.text?.trim() || "");
+  if (sharedPromo) {
+    await handlePromo(message, "promo", sharedPromo[1]);
+    return;
+  }
+  const promo = /^\/(promo|promogive|promocampaign|myid)(?:@\w+)?(?:\s+([^\n]+))?$/.exec(message.text?.trim() || "");
+  if (promo) {
+    await handlePromo(message, promo[1], promo[2]);
+    return;
+  }
+
   // картинка (скриншот билета, талона, счёта): разбор документа; PDF и другие файлы не принимаем
   if (message.photo || message.document) {
     await handlePhoto(message, await getTzOffset(chatId));
@@ -94,15 +108,21 @@ async function handleUpdate(update) {
   let text = message.text;
 
   if (!text && message.voice) {
+    const quota = process.env.PLUS_PLANS_ENABLED === "1" ? await charge(chatId, "voice") : { allowed: true };
+    if (!quota.allowed) {
+      await sendMessage(chatId, limitMessages.voice);
+      return;
+    }
+    let errorText = "Не расслышал голосовое — попробуй ещё раз, покороче и чётче.";
     try {
       text = await transcribeVoice(message.voice.file_id);
-      if (!text) {
-        await sendMessage(chatId, "Не расслышал голосовое — попробуй ещё раз, покороче и чётче.");
-        return;
-      }
     } catch (e) {
       console.error("transcribe error", e);
-      await sendMessage(chatId, "Не получилось распознать голосовое. Попробуй текстом.");
+      errorText = "Не получилось распознать голосовое. Попробуй текстом.";
+    }
+    if (!text) {
+      if (quota.id) await release(chatId, quota.id);
+      await sendMessage(chatId, errorText);
       return;
     }
   }

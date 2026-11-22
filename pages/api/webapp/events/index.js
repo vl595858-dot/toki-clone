@@ -2,6 +2,8 @@ const { requireTelegramUser } = require("../_auth");
 const { toUtcIso, todayInOffset, isValidDate, dateTimeError } = require("../../../../lib/time");
 const { getTzOffset } = require("../../../../lib/settings");
 const db = require("../../../../lib/db");
+const { createEvents } = require("../../../../lib/plusPlans");
+const { limitMessages } = require("../../../../lib/plusPlanLimits");
 
 const { apiOffset, eventOffset, reminderAt } = require("../../../../lib/reminderSettings");
 
@@ -78,10 +80,11 @@ export default async function handler(req, res) {
     let remindAtIso = reminderAt(eventAtIso, offsetMin);
     if (remindAtIso !== null && new Date(remindAtIso).getTime() <= Date.now()) remindAtIso = eventAtIso;
 
-    const ins = await db.query(
+    const ins = await createEvents(chatId, 1, client => client.query(
       `INSERT INTO events (chat_id, title, emoji, event_at, remind_at) VALUES ($1,$2,$3,$4,$5) RETURNING id`,
       [chatId, title.trim(), emoji || "📌", eventAtIso, remindAtIso]
-    );
+    ));
+    if (!ins) return res.status(409).json({ error: limitMessages.event });
     res.status(200).json({ id: ins.rows[0].id, eventAt: eventAtIso });
     return;
   }
