@@ -26,9 +26,10 @@ const { prepareTarget, isNewCommand } = require("../../../lib/targetQuery");
 const { commandOffset, OFF, AMBIGUOUS, INTERVAL_QUESTION, isIntervalOnly } = require("../../../lib/reminderSettings");
 const { dateInputError } = require("../../../lib/dateInput");
 const { historicalListScope } = require("../../../lib/time");
-const { handlePlusCommand, handlePlusLink, handlePromo, handlePromoDuration } = require("../../../lib/handlers/plus");
+const { handlePlusCommand, handlePromo, handlePromoDuration } = require("../../../lib/handlers/plus");
 const { charge, release } = require("../../../lib/plusPlans");
 const { limitMessages } = require("../../../lib/plusPlanLimits");
+const { handleWebKey } = require("../../../lib/handlers/webPlanner");
 const { claimUpdate } = require("../../../lib/dedupe");
 
 
@@ -58,7 +59,6 @@ export default async function handler(req, res) {
       if (String(cq.data || "").startsWith("rem:")) await handleReminderButton(cq);
       else if (String(cq.data || "").startsWith("doc:")) await handleDocButton(cq);
       else if (String(cq.data || "").startsWith("promo:")) await handlePromoDuration(cq);
-      else if (String(cq.data || "").startsWith("plus:")) await handlePlusLink(cq);
       else await handleCallbackQuery(cq);
     } else {
       await handleUpdate(req.body);
@@ -83,8 +83,17 @@ async function handleUpdate(update) {
   if (!message) return;
   const chatId = message.chat.id;
   const plusStart = /^\/start(?:@\w+)? plus_(\S+)$/.exec(message.text?.trim() || "");
-  if (plusStart || /^\/plus(?:@\w+)?$/.test(message.text?.trim() || "")) {
-    await handlePlusCommand(message, plusStart?.[1]);
+  if (plusStart) {
+    await sendMessage(chatId, "Этот тестовый заказ больше недоступен.");
+    return;
+  }
+  if (/^\/plus(?:@\w+)?$/.test(message.text?.trim() || "")) {
+    await handlePlusCommand(message);
+    return;
+  }
+
+  if (/^\/webkey(?:@\w+)?$/.test(message.text?.trim() || "")) {
+    await handleWebKey(message);
     return;
   }
 

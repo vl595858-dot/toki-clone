@@ -1,97 +1,85 @@
-const test = require("node:test");
 const assert = require("node:assert/strict");
-const db = require("../lib/db");
+const test = require("node:test");
+const { expiryFor, paymentConfig, checkoutAvailable, hookMatches } = require("../lib/webPlannerPayments");
+const { config, guard } = require("../lib/webPlannerAuth");
 
-const ORDER_ID = "cefbe0a5-25ab-46d2-8f5a-22e9fde9437d";
-const PAYMENT_ID = "299e7a1b-000f-5000-8000-126628f15141";
-const settings = { origin: "https://preview.example.com", userId: "11", shopId: "81", key: "test_example" };
+const web = { origin: "https://preview.example.com" };
 
-function setup(t) {
-  const order = {
-    id: ORDER_ID, telegram_user_id: "11", can_start: true, status: "pending", payment_id: null,
+test("test keys cannot enable production checkout and live settings require approval and fiscal configuration", (t) => {
+  const env = {
+    WEB_YOOKASSA_MODE: "test",
+    WEB_YOOKASSA_SHOP_ID: "1",
+    WEB_YOOKASSA_SECRET_KEY: "test_example",
+    WEB_YOOKASSA_HOOK_KEY: "x".repeat(32),
+    WEB_YOOKASSA_VAT_CODE: "1",
+    WEB_YOOKASSA_PAYMENT_SUBJECT: "service",
+    WEB_YOOKASSA_PAYMENT_MODE: "full_payment",
+    WEB_YOOKASSA_CHECKOUT_PAUSED: "0",
+    VERCEL_ENV: "preview",
   };
-  const requests = [];
-  const grants = [];
-  const payment = {
-    id: PAYMENT_ID, status: "pending", paid: false, test: true,
-    amount: { value: "290.00", currency: "RUB" },
-    metadata: { order_id: ORDER_ID },
-    confirmation: { confirmation_url: "https://yoomoney.ru/confirm" },
-  };
-  const query = async (sql, args) => {
-    if (sql.startsWith("SELECT pg_advisory")) return { rows: [] };
-    if (sql.startsWith("SELECT *")) return { rows: [{ ...order }] };
-    assert.equal(args[1], ORDER_ID);
-    order.payment_id = args[0];
-    if (sql.includes("SET payment_id = $1, status = 'succeeded'")) {
-      grants.push(args.slice(2));
-      order.status = "succeeded";
-    } else {
-      order.status = args[2];
-    }
-    return { rows: [] };
-  };
-  t.mock.method(db, "query", query);
-  t.mock.method(db, "withTransaction", async (fn) => fn({ query }));
-  t.mock.method(globalThis, "fetch", async (url, options) => {
-    requests.push({ url, options });
-    return { ok: true, json: async () => ({ ...payment }) };
+  const original = process.env;
+  process.env = env;
+  t.after(() => { process.env = original; });
+  assert.equal(paymentConfig(web).test, true);
+  env.WEB_YOOKASSA_CHECKOUT_PAUSED = "1";
+  assert.equal(checkoutAvailable(paymentConfig(web)), false);
+  assert.equal(paymentConfig(web).test, true); // Refund and payment reconciliation stay available.
+  env.VERCEL_ENV = "production";
+  assert.equal(paymentConfig(web), null);
+  Object.assign(env, { WEB_YOOKASSA_MODE: "live", WEB_YOOKASSA_SECRET_KEY: "live_example" });
+  assert.equal(paymentConfig(web), null);
+  Object.assign(env, {
+    WEB_YOOKASSA_LIVE_APPROVED: "1",
+    PLUS_SELLER_NAME: "Example",
+    PLUS_SELLER_INN: "Example",
+    PLUS_SELLER_OGRNIP: "Example",
+    PLUS_SUPPORT_EMAIL: "support@example.com",
   });
-  const path = require.resolve("../lib/plusPayments");
-  delete require.cache[path];
-  return { ...require(path), order, requests, payment, grants };
-}
-
-function notify(payment) {
-  return { type: "notification", event: `payment.${payment.status}`, object: { ...payment } };
-}
-
-test("test checkout fixes the price and reuses the order id and known payment", async (t) => {
-  const { checkout, order, requests, payment } = setup(t);
-  assert.equal(await checkout({ ...order, telegram_user_id: "22" }, settings), null);
-  assert.equal(await checkout({ ...order, can_start: false }, settings), null);
-  assert.equal(requests.length, 0);
-  assert.equal(await checkout({ ...order }, settings), "https://yoomoney.ru/confirm");
-  const [{ options }] = requests;
-  assert.equal(options.method, "POST");
-  assert.equal(options.headers["Idempotence-Key"], ORDER_ID);
-  const body = JSON.parse(options.body);
-  assert.deepEqual(body.amount, { value: "290.00", currency: "RUB" });
-  assert.equal(body.confirmation.return_url, "https://preview.example.com/plus#plans");
-  assert.equal(body.payment_method_data.type, "bank_card");
-  assert.deepEqual(body.metadata, { order_id: ORDER_ID });
-  assert.equal(order.payment_id, PAYMENT_ID);
-  payment.confirmation = { confirmation_url: "https://yoomoney.ru.example.com/confirm" };
-  assert.equal(await checkout({ ...order }, settings), null);
-  assert.equal(requests[1].options.method, "GET");
-  assert.match(requests[1].url, new RegExp(`/${PAYMENT_ID}$`));
+  assert.equal(paymentConfig(web).test, false);
+  env.WEB_YOOKASSA_PAYMENT_MODE = "full_prepayment";
+  assert.equal(paymentConfig(web), null);
 });
 
-test("only a verified successful test payment grants 30 days once", async (t) => {
-  const { receiveNotification, order, payment, grants, requests } = setup(t);
-  const success = { ...payment, status: "succeeded", paid: true };
-  await assert.rejects(receiveNotification(notify(success), settings), /статус платежа/);
-  assert.equal(order.status, "pending");
-  assert.equal(requests.length, 1);
-
-  Object.assign(payment, success, { test: false });
-  await receiveNotification(notify(success), settings);
-  assert.deepEqual(grants, []);
-
-  Object.assign(payment, success, { amount: { value: "1.00", currency: "RUB" } });
-  await receiveNotification(notify(success), settings);
-  assert.deepEqual(grants, []);
-
-  Object.assign(payment, success);
-  for (let i = 0; i < 2; i++) await receiveNotification(notify(success), settings);
-  assert.equal(order.status, "succeeded");
-  assert.deepEqual(grants, [["11", 30]]);
+test("payment periods extend active access and restart after a gap", () => {
+  const periods = [
+    { paid_at: "2030-01-01T10:00:00Z", days: 30 },
+    { paid_at: "2030-01-15T10:00:00Z", days: 30 },
+  ];
+  assert.equal(expiryFor(periods).toISOString(), "2030-03-02T10:00:00.000Z");
+  assert.equal(expiryFor(periods.slice(1)).toISOString(), "2030-02-14T10:00:00.000Z");
+  assert.equal(expiryFor([]), null);
+  assert.equal(expiryFor([...periods, { paid_at: "2030-03-06T10:00:00Z", days: 30 }]).toISOString(), "2030-04-05T10:00:00.000Z");
 });
 
-test("canceled test payments never grant access", async (t) => {
-  const { receiveNotification, order, payment, grants } = setup(t);
-  payment.status = "canceled";
-  await receiveNotification(notify(payment), settings);
-  assert.equal(order.status, "canceled");
-  assert.deepEqual(grants, []);
+test("wrong webhook keys and cross-origin state changes are rejected", () => {
+  assert.equal(hookMatches("x".repeat(32), "x".repeat(32)), true);
+  assert.equal(hookMatches("a".repeat(32), "x".repeat(32)), false);
+  assert.equal(hookMatches(["x".repeat(32)], "x".repeat(32)), false);
+  const res = { setHeader() {}, status(code) { this.code = code; return this; }, end() {} };
+  assert.equal(guard({ method: "POST", headers: { origin: "https://other.example.com", "content-type": "application/json" } }, res, web, ["POST"]), false);
+  assert.equal(res.code, 403);
+  assert.equal(guard({ method: "POST", headers: { origin: web.origin, "content-type": "application/json" } }, res, web, ["POST"]), true);
+});
+
+test("preview web planner needs a separate database and one test email", (t) => {
+  const env = {
+    VERCEL_ENV: "preview",
+    WEB_PLANNER_ORIGIN: web.origin,
+    WEB_SUPABASE_URL: "https://example-project.supabase.co",
+    WEB_SUPABASE_PUBLISHABLE_KEY: "example",
+    DATABASE_URL: "postgres://prod",
+    WEB_PLANNER_TEST_DATABASE_URL: "postgres://prod",
+    WEB_PLANNER_TEST_EMAIL: "TEST@example.com",
+  };
+  const original = process.env;
+  process.env = env;
+  t.after(() => { process.env = original; });
+  assert.equal(config(), null);
+  env.WEB_PLANNER_TEST_DATABASE_URL = "postgres://preview";
+  assert.equal(config().testEmail, "test@example.com");
+  env.VERCEL_ENV = "production";
+  assert.equal(config(), null);
+  env.WEB_PLANNER_PUBLIC_READY = "1";
+  env.WEB_PLANNER_DATABASE_URL = "postgres://live-web-db";
+  assert.equal(config().testEmail, null);
 });

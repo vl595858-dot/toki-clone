@@ -1,12 +1,11 @@
 import Head from 'next/head';
-import { useEffect, useState } from 'react';
 import { price as launchPrice, durationDays } from '../lib/plusPricing';
-
-const publicBotUrl = 'https://t.me/moideladelishki_bot';
+import { limits } from '../lib/plusPlanLimits';
 
 export async function getServerSideProps() {
-  const { config } = require('../lib/plusPayments');
-  const settings = config();
+  const { config } = require('../lib/webPlannerAuth');
+  const { paymentConfig, checkoutAvailable } = require('../lib/webPlannerPayments');
+  const payment = paymentConfig(config());
   const { PLUS_SELLER_NAME, PLUS_SELLER_INN, PLUS_SELLER_OGRNIP, PLUS_SUPPORT_EMAIL, PLUS_SUPPORT_PHONE } = process.env;
   const seller = PLUS_SELLER_NAME && PLUS_SELLER_INN && PLUS_SELLER_OGRNIP && PLUS_SUPPORT_EMAIL
     ? { name: PLUS_SELLER_NAME, inn: PLUS_SELLER_INN, ogrnip: PLUS_SELLER_OGRNIP,
@@ -14,17 +13,17 @@ export async function getServerSideProps() {
     : null;
   return { props: {
     seller,
-    testCheckout: Boolean(settings),
-    botUrl: settings ? `https://t.me/${settings.bot}` : publicBotUrl,
+    canBuy: checkoutAvailable(payment),
+    paymentMode: payment?.test ? 'test' : payment ? 'live' : null,
   } };
 }
 
-export default function PlusPage({ testCheckout, botUrl, seller }) {
+export default function PlusPage({ paymentMode, canBuy, seller }) {
   return (
     <>
       <Head>
-        <title>Мои делишки — планировщик в Telegram</title>
-        <meta name="description" content="Записывайте дела голосом и получайте напоминания в Telegram. Тариф «Плюс» — 290 ₽ за 30 дней." />
+        <title>Мои делишки — веб-планировщик</title>
+        <meta name="description" content="Создавайте дела с датами, отмечайте выполненное и находите задачи в веб-планировщике «Мои делишки»." />
         <meta name="robots" content="noindex, nofollow" />
       </Head>
       <main className="page" lang="ru">
@@ -34,68 +33,77 @@ export default function PlusPage({ testCheckout, botUrl, seller }) {
         </header>
         <section className="hero wrap" id="top" aria-labelledby="intro">
           <div>
-            <h1 id="intro">Скажи дело.<br />Бот напомнит.</h1>
-            <p>Записывайте дела голосом или текстом. Бот разберёт дату, добавит дело в календарь и напомнит прямо в Telegram.</p>
-            <a className="button" href={botUrl}>Попробовать в Telegram</a>
+            <h1 id="intro">Все дела<br />под рукой</h1>
+            <p>Записывайте дела, назначайте даты и отмечайте выполненное. Войдите по электронной почте и пользуйтесь планировщиком прямо в браузере.</p>
+            <a className="button" href="/planner">Открыть планировщик</a>
           </div>
           <figure className="example">
             <figcaption>Пример записи</figcaption>
-            <blockquote>Напомни завтра в 18:00 позвонить в студию.</blockquote>
+            <blockquote>Позвонить в студию</blockquote>
             <div className="event">
               <span className="tick" aria-hidden="true">✓</span>
-              <div><strong>Позвонить в студию</strong><span>Завтра, 18:00</span></div>
+              <div><strong>Позвонить в студию</strong><span>Запланировано на завтра</span></div>
             </div>
           </figure>
         </section>
         <section className="plans wrap" id="plans" aria-labelledby="plan-title">
-          <h2 id="plan-title">Тарифы при запуске оплаты</h2>
+          <h2 id="plan-title">Тарифы</h2>
           <div className="cards">
             <article className="card">
               <h3>Бесплатный</h3>
               <p className="price">0 ₽</p>
               <ul>
-                <li>До 30 новых дел и 30 голосовых за 30 дней</li>
-                <li>Календарь, поиск и перенос дел</li>
-                <li>Одно напоминание на дело</li>
+                <li>До {limits.free.event} новых дел за последние 30 дней</li>
+                <li>Список дел с датами, поиск, редактирование и отметки выполнения</li>
               </ul>
-              <a className="secondary" href={botUrl}>Открыть бота</a>
+              <a className="secondary" href="/planner">Начать бесплатно</a>
             </article>
             <article className="card premium">
               <h3>Плюс</h3>
               <p className="price">{launchPrice} ₽ <span>за {durationDays} дней</span></p>
               <ul>
+                <li>Все возможности бесплатного тарифа</li>
                 <li>Создание дел без месячного лимита</li>
-                <li>До 120 голосовых за 30 дней</li>
-                <li>Разбор до 30 скриншотов билетов, записей и счетов</li>
+                <li>Экспорт всего списка дел в CSV</li>
               </ul>
-              {testCheckout
-                ? <TestCheckout />
-                : <p className="status">Оплата пока недоступна. Подключаем ЮKassa.</p>}
+              {canBuy
+                ? <a className="button" href="/planner#purchase">{paymentMode === 'test' ? 'Проверить тестовую оплату' : 'Подключить Плюс'}</a>
+                : <p className="status">Оплата пока недоступна.</p>}
             </article>
           </div>
         </section>
         <section className="details wrap" id="access" aria-labelledby="access-title">
           <h2 id="access-title">Как получить Плюс</h2>
-          <p>После запуска оплаты войдите на сайте через Telegram и оплатите 290 ₽ картой или через СБП. Когда ЮKassa подтвердит платёж, Плюс включится в боте на том же аккаунте на 30 дней. Оплата разовая.</p>
+          <p>Войдите в веб-планировщик по электронной почте. После запуска оплаты «Плюс» подключается в веб-кабинете после подтверждения платежа ЮKassa. Разовая оплата открывает доступ на {durationDays} дней. При действующем «Плюсе» новая покупка продлевает веб-доступ.</p>
         </section>
+        {!seller && paymentMode === 'test' && (
+          <section id="terms" className="details wrap">
+            <h2>Условия тестовой оплаты</h2>
+            <p>Используйте тестовую карту ЮKassa. Платёж проверяет подключение веб-тарифа в тестовом кабинете, деньги не списываются.</p>
+          </section>
+        )}
         {seller && (
           <>
-            <section className="details wrap" aria-labelledby="terms-title">
+            <section id="terms" className="details wrap" aria-labelledby="terms-title">
               <h2 id="terms-title">Публичная оферта</h2>
-              <p className="status">Проект условий. Оплата пока недоступна.</p>
+              <p className="status">{paymentMode === 'live' ? 'Условия покупки в веб-планировщике' : 'Условия веб-тарифа. Боевые платежи пока выключены.'}</p>
               <details className="offer">
                 <summary>Условия платного доступа</summary>
                 <div>
                   <h3>Услуга</h3>
                   <p>{seller.name} предоставляет доступ к расширенным возможностям онлайн-планировщика «Мои делишки» по тарифу «Плюс». Состав тарифа указан на этой странице.</p>
                   <h3>Оплата и активация</h3>
-                  <p>Стоимость доступа — {launchPrice} ₽ за {durationDays} дней. Договор заключается после подтверждения платежа. Оплата разовая, автоматического продления нет. После подтверждения платежа доступ включается в Telegram-боте для аккаунта, указанного при оформлении покупки. Срок доступа отсчитывается с момента его активации. По окончании срока действует бесплатный тариф.</p>
+                  <p>Стоимость доступа — {launchPrice} ₽ за {durationDays} дней. Договор заключается после подтверждения платежа. Оплата разовая, автоматического продления нет. После подтверждения платежа доступ включается в веб-аккаунте, из которого оформлена покупка. Срок отсчитывается от подтверждения платежа или от окончания действующего веб-доступа, если он уже есть. Электронный чек направляется на почту аккаунта. По окончании срока действует бесплатный тариф.</p>
                   <h3>Поддержка и возврат</h3>
                   <p>Если доступ не включился или вы хотите отказаться от услуги, напишите на <a href={`mailto:${seller.email}`}>{seller.email}</a>. Укажите дату платежа и номер заказа, если он у вас есть. Потребитель вправе отказаться от договора в любое время с учётом фактически понесённых исполнителем расходов, связанных с исполнением договора. Обращения и возвраты рассматриваются в соответствии с законодательством Российской Федерации.</p>
                   <h3>Исполнитель</h3>
                   <p>Реквизиты и способы связи указаны в разделе <a href="#contacts">«Контакты»</a> ниже.</p>
                 </div>
               </details>
+            </section>
+            <section className="details wrap" id="privacy">
+              <h2>Данные веб-аккаунта</h2>
+              <p>Адрес почты используется для входа, поддержки и отправки чека. Названия, даты и отметки выполнения хранятся в веб-аккаунте. Данные карты вводятся на странице ЮKassa. Веб-планировщик их не получает. По вопросам доступа к данным или удаления аккаунта напишите в поддержку.</p>
             </section>
             <footer className="footer wrap" id="contacts">
               <h2>Контакты</h2>
@@ -160,92 +168,5 @@ export default function PlusPage({ testCheckout, botUrl, seller }) {
       `}</style>
       <style jsx global>{`body { margin: 0; } * { box-sizing: border-box; }`}</style>
     </>
-  );
-}
-
-async function orderRequest(action) {
-  const response = await fetch('/api/plus/order', action ? {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ action }),
-  } : { cache: 'no-store' });
-  if (!response.ok) throw new Error('Заказ недоступен');
-  return response.json();
-}
-
-function TestCheckout() {
-  const [order, setOrder] = useState(null);
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState('');
-  const status = order?.status;
-
-  useEffect(() => {
-    let mounted = true;
-    let timer;
-    async function refresh() {
-      try {
-        const result = await orderRequest();
-        if (!mounted) return;
-        setOrder(result);
-        if (['unlinked', 'payment_pending'].includes(result.status)) timer = setTimeout(refresh, 2500);
-      } catch {
-        if (mounted) setError('Не удалось проверить заказ. Обновите страницу.');
-      }
-    }
-    refresh();
-    return () => {
-      mounted = false;
-      clearTimeout(timer);
-    };
-  }, [status]);
-
-  async function submit(action) {
-    setBusy(true);
-    setError('');
-    try {
-      const result = await orderRequest(action);
-      if (result.paymentUrl) {
-        window.location.assign(result.paymentUrl);
-        return;
-      }
-      setOrder(await orderRequest());
-    } catch {
-      setError('Не удалось обработать заказ. Попробуйте ещё раз.');
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  return (
-    <div>
-      <p>Тестовый режим. Используйте тестовую карту ЮKassa.</p>
-      {['new', 'expired', 'canceled', 'succeeded'].includes(status) && (
-        <>
-          {status === 'expired' && <p>Время подтверждения истекло.</p>}
-          {status === 'canceled' && <p>ЮKassa отменила платёж.</p>}
-          {status === 'succeeded' && <p role="status">Тестовый Плюс активен до {new Date(order.accessUntil).toLocaleDateString('ru-RU', { timeZone: 'Asia/Yekaterinburg' })} по времени Перми.</p>}
-          <button type="button" disabled={busy} onClick={() => submit('start')}>Создать тестовый заказ</button>
-        </>
-      )}
-      {status === 'unlinked' && (
-        <p><a href={order.telegramUrl} target="_blank" rel="noreferrer">Подтвердить аккаунт в Telegram</a>. Затем вернитесь на эту страницу.</p>
-      )}
-      {status === 'linked' && (
-        <button type="button" disabled={busy} onClick={() => submit('checkout')}>Тестовая оплата · {launchPrice} ₽</button>
-      )}
-      {status === 'payment_pending' && (
-        <>
-          <p role="status">Ждём подтверждения платежа от ЮKassa.</p>
-          <button type="button" disabled={busy} onClick={() => submit('checkout')}>Проверить платёж или вернуться к оплате</button>
-        </>
-      )}
-      {error && <p role="alert">{error}</p>}
-      <style jsx>{`
-        p { margin-block: .45rem; }
-        a { color: #183eaf; }
-        button { font: inherit; font-weight: 700; color: #fff; background: #244dcc; border: 0; border-radius: .8rem; padding: .65rem .9rem; cursor: pointer; }
-        button:disabled { opacity: .65; cursor: wait; }
-      `}</style>
-    </div>
   );
 }
