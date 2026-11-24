@@ -4,7 +4,7 @@ const { loadContext, saveContext } = require("../../../lib/context");
 const { getTzOffset } = require("../../../lib/settings");
 const { stripContextWords, hasForeverWord, stripForeverWord, parseRename, isBirthday, extractExplicitEventTime } = require("../../../lib/text");
 const { buildContextText } = require("../../../lib/contextText");
-const { handleWeather } = require("../../../lib/handlers/weather");
+const { handleWeather, shouldHandleWeather, isWeatherCommand } = require("../../../lib/handlers/weather");
 const { handleCallbackQuery, handleTimezoneCityReply, handleTimezoneCommand, askCityIfNew } = require("../../../lib/handlers/timezone");
 const { handleCreateRecurringEvent, handleDeleteRecurringEvent } = require("../../../lib/handlers/recurring");
 const { resolveTarget, replyNotFound } = require("../../../lib/handlers/eventTarget");
@@ -78,23 +78,37 @@ export default async function handler(req, res) {
   res.status(200).json({ ok: true });
 }
 
+function isCityDialog(pending) {
+  return ["timezone_city", "weather_region"].includes(pending?.type) ||
+    (pending?.type === "doc" && pending.step === "city");
+}
+
 async function handleUpdate(update) {
   const message = update.message;
   if (!message) return;
   const chatId = message.chat.id;
+  const leaveCityDialog = async () => {
+    const context = await loadContext(chatId);
+    if (isCityDialog(context.pending)) {
+      await saveContext(chatId, {...context, pending:null});
+    }
+  };
   const plusStart = /^\/start(?:@\w+)? plus_(\S+)$/.exec(message.text?.trim() || "");
   if (plusStart || /^\/plus(?:@\w+)?$/.test(message.text?.trim() || "")) {
+    await leaveCityDialog();
     await handlePlusCommand(message, plusStart?.[1]);
     return;
   }
 
   const sharedPromo = /^\/start(?:@\w+)? promo_(PLUS-[A-F0-9]{24})$/i.exec(message.text?.trim() || "");
   if (sharedPromo) {
+    await leaveCityDialog();
     await handlePromo(message, "promo", sharedPromo[1]);
     return;
   }
   const promo = /^\/(promo|promogive|promocampaign|myid)(?:@\w+)?(?:\s+([^\n]+))?$/.exec(message.text?.trim() || "");
   if (promo) {
+    await leaveCityDialog();
     await handlePromo(message, promo[1], promo[2]);
     return;
   }
@@ -129,6 +143,18 @@ async function handleUpdate(update) {
 
   if (!text) return;
 
+  let ctx = await loadContext(chatId);
+  const patch = { pending: null };
+
+  // Standalone commands leave the city chooser, including commands that return early.
+  const cancelCity = /^(?:отмена|отмени|стоп)[.!?]*$/iu.test(text.trim());
+  const standalone = !cancelCity && (isNewCommand(text) || isWeatherCommand(text) ||
+    /^(?:какие\s+(?:дела|события)|что\s+у\s+меня|список\s+дел|когда\s+|(?:(?:завтра|сегодня|послезавтра)\s+)?(?:встреча|звонок|при[её]м|тренировка|стрижка|оплатить)\s+)/iu.test(text.trim()));
+  if (isCityDialog(ctx.pending) && standalone) {
+    ctx = { ...ctx, pending: null };
+    await saveContext(chatId, ctx);
+  }
+
   if (/^\/help(@\w+)?$/.test(text.trim())) {
     await handleHelp(chatId);
     return;
@@ -150,16 +176,21 @@ async function handleUpdate(update) {
     return;
   }
 
-  // память диалога нужна уже здесь, чтобы понять ответ на /timezone городом
-  let ctx = await loadContext(chatId);
-  const patch = { pending: null }; // ожидание живёт только один шаг, если хендлер не поставит новое
-
-  if (ctx.pending && ctx.pending.type === "timezone_city") {
-    if (await handleTimezoneCityReply(chatId, text, ctx, patch)) return;
-    ctx = { ...ctx, pending: null }; // это не город — разбираем как обычную команду
+  const timezone = /^\/timezone(?:@\w+)?(?:\s+(.+))?$/iu.exec(text.trim());
+  if (timezone) {
+    if (timezone[1]) {
+      await handleTimezoneCityReply(chatId, timezone[1], {...ctx, pending:{type:"timezone_city"}}, patch);
+    } else await handleTimezoneCommand(chatId, ctx, patch);
+    return;
   }
-  if (/^\/timezone(@\w+)?$/.test(text.trim())) {
-    await handleTimezoneCommand(chatId, ctx, patch);
+  if (ctx.pending?.type === "timezone_city") {
+    await handleTimezoneCityReply(chatId, text, ctx, patch);
+    return;
+  }
+  const docReply = ctx.pending?.type === "doc" && !standalone;
+  if (!docReply && (shouldHandleWeather(text, ctx) || ctx.pending?.type === "weather_region")) {
+    await handleWeather(chatId, ctx, patch, text);
+    await saveContext(chatId, {...ctx, ...patch});
     return;
   }
 
@@ -292,7 +323,7 @@ async function dispatch(chatId, parsed, ctx, patch, tz, text) {
     return;
   }
   if (parsed.intent === "weather") {
-    await handleWeather(chatId, parsed, ctx, patch, text);
+    await handleWeather(chatId, ctx, patch, text);
     return;
   }
   if (parsed.intent === "list_events") {

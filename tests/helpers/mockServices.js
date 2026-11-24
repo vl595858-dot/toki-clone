@@ -108,7 +108,11 @@ function fixture(options = {}) {
     ['lib/dedupe.js', {claimUpdate: async () => true}],
     ['lib/db.js', db], ['lib/telegram.js', telegram],
     ['lib/context.js', {loadContext: async () => state.ctx, saveContext: async (id, ctx) => {state.ctx = ctx;}}],
-    ['lib/settings.js', {getTzOffset: async () => state.tz}],
+    ['lib/settings.js', {
+      getTzOffset: async () => state.tz,
+      hasTzSetting: async () => Boolean(state.tzSet),
+      setTzOffset: async (id, offset) => {state.tz = offset; state.tzSet = true;},
+    }],
     ['lib/ai.js', {transcribeVoice: async () => state.text, parseMessage: async () => { if (state.parseHook) return state.parseHook(); if (state.parseFailure) throw new Error('Mock model unavailable'); return {...state.model}; }}],
     ['lib/contextText.js', {buildContextText: async () => ''}],
     ['pages/api/webapp/_auth.js', {requireTelegramUser: () => 1}],
@@ -123,7 +127,7 @@ function fixture(options = {}) {
       .replace('export const config', 'const config').replace('export const maxDuration', 'const maxDuration')
       .replace('export default async function handler', 'module.exports = async function handler');
     if (relative === 'pages/api/telegram/[secret].js') source += '\nmodule.exports.runUpdate = handleUpdate;';
-    vm.runInNewContext(source, {module, exports: module.exports, console: {...console, error: (...args) => state.errors.push(args)}, process: {...process, env: {...process.env, CRON_SECRET: process.env.CRON_SECRET || "mock-cron"}}, AbortSignal, Date: Clock,
+    vm.runInNewContext(source, {module, exports: module.exports, console: {...console, error: (...args) => state.errors.push(args)}, process: {...process, env: {...process.env, CRON_SECRET: process.env.CRON_SECRET || "mock-cron"}}, AbortSignal, Date: Clock, fetch: options.fetch,
       require: name => name.startsWith('.') ? load(path.relative(root, path.resolve(path.dirname(filename), name)) + '.js') : require(name),
     }, {filename});
     return module.exports;
