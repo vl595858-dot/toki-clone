@@ -17,6 +17,50 @@ test('command distinguishes off, at event, interval, zero, and unspecified', () 
 
 for (const voice of [false, true]) {
   const mode = voice ? 'voice' : 'text';
+  test(`${mode}: a date-only reminder uses local noon and reminds an hour earlier`, async () => {
+    for (const eventTime of ['00:00', null]) {
+      const f = fixture({now: '2026-11-27T08:44:00Z'});
+      f.tz = '+05:00';
+      await f.send('напомни в понедельник выслать партнерам подписанные договоры', {
+        intent: 'create_event', title: 'выслать партнерам подписанные договоры',
+        event_date: '2026-11-30', event_time: eventTime, remind_offset_minutes: 0,
+      }, voice);
+      assert.equal(f.events[0].event_at, '2026-11-30T07:00:00.000Z');
+      assert.equal(f.events[0].remind_at, '2026-11-30T06:00:00.000Z');
+      assert.match(f.replies.at(-1), /30 ноября в 12:00/);
+      assert.match(f.replies.at(-1), /Напомню за час до события \(в 11:00\)/);
+    }
+  });
+  test(`${mode}: explicit time and reminder choices override the defaults independently`, async () => {
+    const cases = [
+      ['в 00:00', '00:00', '2026-11-30T00:00:00.000Z', 60],
+      ['в полночь', '00:00', '2026-11-30T00:00:00.000Z', 60],
+      ['в ноль часов', '00:00', '2026-11-30T00:00:00.000Z', 60],
+      ['в 15:00', '00:00', '2026-11-30T15:00:00.000Z', 60],
+      ['в шесть вечера', '18:00', '2026-11-30T18:00:00.000Z', 60],
+      [', за 30 минут', '00:00', '2026-11-30T12:00:00.000Z', 30],
+      [', в момент события', '00:00', '2026-11-30T12:00:00.000Z', 0],
+      [', без напоминаний', '00:00', '2026-11-30T12:00:00.000Z', -1],
+    ];
+    for (const [timing, eventTime, expectedAt, expectedOffset] of cases) {
+      const f = fixture({now: '2026-11-27T08:44:00Z'});
+      await f.send(`Напомни в понедельник отправить договоры ${timing}`, {
+        intent: 'create_event', title: 'отправить договоры', event_date: '2026-11-30',
+        event_time: eventTime, remind_offset_minutes: 0,
+      }, voice);
+      assert.equal(f.events[0].event_at, expectedAt, timing);
+      assert.equal(settings.eventOffset(f.events[0]), expectedOffset, timing);
+    }
+  });
+  test(`${mode}: a near-term relative task still reminds at the event if an hour is unavailable`, async () => {
+    const f = fixture({now: '2026-11-27T08:44:00Z'});
+    await f.send('Напомни через полчаса отправить договоры', {
+      intent: 'create_event', title: 'отправить договоры', event_relative_minutes: 30,
+    }, voice);
+    assert.equal(f.events[0].event_at, '2026-11-27T09:14:00.000Z');
+    assert.equal(f.events[0].remind_at, f.events[0].event_at);
+    assert.match(f.replies.at(-1), /за час до события уже не успеть/);
+  });
   test(`${mode}: creation respects off, at event, interval, and default despite model values`, async () => {
     for (const [suffix, expected] of [['не напоминай', -1], ['без напоминаний', -1], ['напомни в момент события', 0], ['напомни за 30 минут', 30], ['', 60]]) {
       const f = fixture();
@@ -61,6 +105,25 @@ for (const voice of [false, true]) {
     }
   });
 }
+
+test('recurring creation keeps separate defaults for ordinary tasks and birthdays', async () => {
+  const ordinary = fixture({now: '2026-11-27T08:44:00Z'});
+  await ordinary.send('Напомни каждый понедельник отправлять договоры', {
+    intent: 'create_recurring_event', title: 'отправлять договоры', recurring_frequency: 'weekly',
+    weekday: 'monday', event_time: '00:00', remind_offset_minutes: 0,
+  });
+  assert.equal(ordinary.templates[0].time, '12:00');
+  assert.equal(ordinary.templates[0].remind_offset_minutes, 60);
+
+  const birthday = fixture({now: '2026-11-27T08:44:00Z'});
+  await birthday.send('Напомни про день рождения 5 мая каждый год', {
+    intent: 'create_recurring_event', title: 'День рождения', recurring_frequency: 'yearly',
+    recurring_month: 5, recurring_month_day: 5, event_time: '00:00', remind_offset_minutes: 0,
+  });
+  assert.equal(birthday.templates[0].time, '10:00');
+  assert.equal(birthday.templates[0].remind_offset_minutes, 10080);
+  assert.equal(birthday.templates[0].day_before, true);
+});
 
 test('calendar creates all states and returns the offset for editing', async () => {
   const f = fixture();

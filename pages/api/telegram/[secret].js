@@ -2,7 +2,7 @@ const { sendMessage } = require("../../../lib/telegram");
 const { transcribeVoice, parseMessage } = require("../../../lib/ai");
 const { loadContext, saveContext } = require("../../../lib/context");
 const { getTzOffset } = require("../../../lib/settings");
-const { stripContextWords, hasForeverWord, stripForeverWord, parseRename, isBirthday, extractExplicitEventTime } = require("../../../lib/text");
+const { stripContextWords, hasForeverWord, stripForeverWord, parseRename, isBirthday, extractExplicitEventTime, mentionsMidnight } = require("../../../lib/text");
 const { buildContextText } = require("../../../lib/contextText");
 const { handleWeather, shouldHandleWeather, isWeatherCommand } = require("../../../lib/handlers/weather");
 const { handleCallbackQuery, handleTimezoneCityReply, handleTimezoneCommand, askCityIfNew } = require("../../../lib/handlers/timezone");
@@ -279,9 +279,11 @@ async function handleUpdate(update) {
     parsed._selection = ctx.pending.selection;
   }
 
+  const creating = parsed.intent === "create_event" || parsed.intent === "create_recurring_event";
+
   // Состояние напоминания берём только из текущей команды, не из памяти модели.
-  if (["create_event", "create_recurring_event", "reschedule_event", "reschedule_recurring_event", "set_reminder"].includes(parsed.intent)) {
-    const offset = commandOffset(text);
+  if (creating || ["reschedule_event", "reschedule_recurring_event", "set_reminder"].includes(parsed.intent)) {
+    const offset = commandOffset(text, { requireExplicitAtEvent: creating });
     parsed.reminder_ambiguous = offset === AMBIGUOUS;
     parsed.reminder_disabled = offset === OFF;
     parsed.remind_offset_minutes = Number.isFinite(offset) && offset !== OFF ? offset : null;
@@ -297,15 +299,18 @@ async function handleUpdate(update) {
   }
 
   // модель иногда подмешивает в название нового дела слова из памяти диалога — убираем их
-  if ((parsed.intent === "create_event" || parsed.intent === "create_recurring_event") && parsed.title) {
+  if (creating && parsed.title) {
     parsed.title = stripContextWords(parsed.title, text, contextText);
   }
 
-  if (parsed.intent === "create_event" || parsed.intent === "create_recurring_event") {
+  if (creating) {
     const explicitTime = extractExplicitEventTime(text);
     if (explicitTime) {
       parsed.event_time = explicitTime;
       parsed.event_relative_minutes = null;
+    } else if (parsed.event_time === "00:00" && !mentionsMidnight(text)) {
+      // Модель иногда подставляет полночь, когда пользователь указал только дату.
+      parsed.event_time = null;
     }
   }
 
